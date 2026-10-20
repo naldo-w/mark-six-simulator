@@ -1,0 +1,1552 @@
+<!doctype html>
+<html lang="zh-Hant-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="香港六合彩攪珠機 3D 模擬器：氣流攪拌、彩球自然落入洞口、弧軌收珠，附本機攪珠統計。">
+<meta name="theme-color" content="#15120f">
+<meta name="color-scheme" content="dark">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,sans-serif}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>六合彩攪珠機</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@400;500;700;900&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+:root{
+  /* Layout: stage → control dock → tabbed content (結果／統計／紀錄). Single dark set by choice. */
+  --bg:#15120f; --panel:#1d1814; --raise:#28211b; --line:#3b3229;
+  --fg:#f4ede3; --muted:#a6978a;
+  --led:#ff5511; --led-soft:#ff8050; --on-led:#1d0e05;
+  --wall-top:#e9dfcf; --wall-mid:#d8c7af; --wall-low:#b9a487; --wall-glow:#f0864a;
+  --red:#d8343b; --blue:#2b8cd6; --green:#2a9f50; --danger:#e5484d;
+  --ring:0 0 0 1px rgba(255,236,214,.07);
+  --shadow:0 0 0 1px rgba(255,236,214,.06),0 1px 2px rgba(0,0,0,.28),0 10px 28px rgba(0,0,0,.22);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --ease-in-out:cubic-bezier(.77,0,.175,1);
+  --f-display:"Noto Sans HK","PingFang HK","Microsoft JhengHei",sans-serif;
+  --f-num:"Barlow Condensed","Roboto Condensed","Arial Narrow",sans-serif;
+  color-scheme:dark;
+}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-display);line-height:1.55}
+button,a,[role="tab"],.switch{touch-action:manipulation}
+button,[role="tab"],.switch{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.wrap{max-width:1040px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 20px}
+h1{margin:0;font-size:clamp(26px,4.2vw,38px);font-weight:900;letter-spacing:.06em;line-height:1.15;text-wrap:balance}
+.sub{margin:4px 0 0;color:var(--muted);font-size:14px}
+.spec{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:12px;letter-spacing:.08em;color:var(--muted);border-radius:999px;padding:3px 10px;background:var(--panel);box-shadow:var(--ring)}
+
+/* ---------- 舞台 ---------- */
+.stage{position:relative;width:100%;aspect-ratio:16/11;max-height:74vh;min-height:360px;border-radius:18px;overflow:hidden;box-shadow:var(--shadow);
+  background:
+    radial-gradient(ellipse 70% 38% at 50% 100%, var(--wall-glow) 0%, rgba(240,134,74,0) 70%),
+    linear-gradient(180deg,var(--wall-top) 0%,var(--wall-mid) 66%,var(--wall-low) 100%)}
+.stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:13%;pointer-events:none;opacity:.5;
+  background:repeating-linear-gradient(180deg,#3b3431 0 5px,#8c8076 5px 13px)}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab;z-index:1}
+.stage canvas.dragging{cursor:grabbing}
+.hud{position:absolute;top:12px;left:12px;right:12px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 8px;z-index:2;pointer-events:none}
+.pill{display:inline-flex;align-items:center;gap:8px;background:rgba(21,18,15,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:var(--fg);font-size:13px;padding:5px 12px;border-radius:999px;white-space:nowrap;box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+.pill .num{font-family:var(--f-num);font-size:16px;font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.dot{width:8px;height:8px;border-radius:50%;background:#5bd07a;box-shadow:0 0 8px #5bd07a;transition:background-color 200ms ease,box-shadow 200ms ease}
+.busy .dot{background:var(--led);box-shadow:0 0 10px var(--led);animation:blink .8s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+.stage-result{position:absolute;left:50%;bottom:14px;z-index:2;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px);padding:10px 14px;border-radius:999px;background:rgba(21,18,15,.8);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 0 0 1px rgba(255,255,255,.06),0 10px 30px rgba(0,0,0,.3);
+  opacity:1;transform:translate(-50%,0);transition:opacity 300ms var(--ease-out),transform 300ms var(--ease-out)}
+@starting-style{.stage-result{opacity:0;transform:translate(-50%,10px)}}
+.stage-result[hidden]{display:none}
+.stage-result .ball{--s:clamp(28px,6vw,40px);animation:ballIn 260ms var(--ease-out) both;animation-delay:calc(var(--i,0) * 50ms + 80ms)}
+.stage-result .plus{font-size:22px}
+@keyframes ballIn{from{opacity:0;transform:translateY(6px) scale(.9)}}
+.nogl{position:absolute;inset:auto 12px 14px;z-index:2;text-align:center;font-size:13px;color:#2b211a;background:rgba(255,255,255,.7);border-radius:8px;padding:6px 10px}
+
+/* ---------- 控制台 ---------- */
+.dock{display:grid;gap:12px;background:var(--panel);border-radius:18px;padding:12px;box-shadow:var(--shadow)}
+.dock-main{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+#drawBtn{flex:1 1 220px;min-height:58px;font-family:var(--f-display);font-size:22px;font-weight:900;letter-spacing:.35em;text-indent:.35em;padding:0 28px;border:0;border-radius:14px;color:var(--on-led);cursor:pointer;
+  background:linear-gradient(180deg,var(--led-soft),var(--led));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(255,85,17,.28);
+  transition:transform 160ms var(--ease-out),opacity 200ms ease,letter-spacing 200ms var(--ease-out),text-indent 200ms var(--ease-out)}
+#drawBtn:active:not(:disabled){transform:scale(.97)}
+#drawBtn:disabled{opacity:.55;cursor:progress;letter-spacing:.12em;text-indent:.12em}
+.batch{flex:1 1 340px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--raise);border-radius:14px;padding:8px 8px 8px 14px;box-shadow:var(--ring)}
+.batch label{font-weight:700;letter-spacing:.08em;font-size:14px;margin-right:auto}
+.field{display:flex;align-items:center;gap:6px;background:var(--bg);border-radius:10px;padding:0 10px 0 4px;box-shadow:var(--ring);transition:box-shadow 160ms ease}
+.field:focus-within{box-shadow:0 0 0 2px var(--led)}
+.field.invalid{box-shadow:0 0 0 2px var(--danger)}
+.batch input{width:4.6em;border:0;background:none;color:var(--fg);font-family:var(--f-num);font-size:18px;font-weight:600;padding:8px 6px;font-variant-numeric:tabular-nums;outline:none}
+.batch .unit{color:var(--muted);font-size:13px}
+.btn-secondary{min-height:42px;font:inherit;font-size:14px;font-weight:700;color:var(--fg);background:rgba(255,255,255,.06);border:0;border-radius:10px;padding:0 16px;cursor:pointer;box-shadow:var(--ring);transition:transform 160ms var(--ease-out),background-color 160ms ease,opacity 200ms ease}
+.btn-secondary:active:not(:disabled){transform:scale(.97)}
+.btn-secondary:disabled{opacity:.45;cursor:not-allowed}
+.dock-sub{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:0 4px}
+.hint{color:var(--muted);font-size:13px}
+.dock-msg{margin:0 0 0 auto;transition:color 200ms ease}
+.dock-msg.err{color:#ff8a8a}
+.dock-msg.ok{color:var(--led-soft)}
+.switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:14px}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch span{width:40px;height:24px;border-radius:999px;background:var(--raise);position:relative;box-shadow:var(--ring);transition:background-color 200ms ease}
+.switch span::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--muted);box-shadow:0 1px 2px rgba(0,0,0,.4);transition:transform 200ms var(--ease-out),background-color 200ms ease}
+.switch:active span::after{transform:scale(.92)}
+.switch input:checked+span{background:rgba(255,85,17,.4)}
+.switch input:checked+span::after{transform:translateX(16px);background:var(--led-soft)}
+.switch:active input:checked+span::after{transform:translateX(16px) scale(.92)}
+#drawBtn:focus-visible,.btn-secondary:focus-visible,.switch input:focus-visible+span,.textbtn:focus-visible,.tab:focus-visible,.hold-btn:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
+
+/* ---------- 分頁 ---------- */
+.tabs{box-sizing:border-box;position:relative;display:flex;gap:2px;padding:4px;background:var(--panel);border-radius:14px;box-shadow:var(--ring);width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{position:relative;z-index:1;font:inherit;font-size:14px;font-weight:700;letter-spacing:.06em;color:var(--muted);background:none;border:0;border-radius:10px;padding:8px 16px;cursor:pointer;white-space:nowrap;transition:color 200ms ease,transform 160ms var(--ease-out)}
+.tab:active{transform:scale(.97)}
+.tab[aria-selected="true"]{color:var(--on-led)}
+.tab .count{font-family:var(--f-num);font-weight:600;font-variant-numeric:tabular-nums;margin-left:4px;opacity:.75}
+.ind{position:absolute;top:0;left:0;z-index:0;border-radius:10px;background:var(--led);box-shadow:0 1px 2px rgba(0,0,0,.3);pointer-events:none;transition:transform 220ms var(--ease-out),width 220ms var(--ease-out),height 220ms var(--ease-out)}
+.ind.instant{transition:none}
+.pane{display:grid;gap:16px}
+
+.panel{background:var(--panel);border-radius:18px;padding:18px clamp(14px,3vw,24px);display:grid;gap:14px;min-width:0;box-shadow:var(--shadow)}
+.panel h2{margin:0;font-size:14px;font-weight:700;letter-spacing:.18em;color:var(--muted)}
+.row-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.balls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.plus{font-family:var(--f-num);font-size:28px;color:var(--muted);padding:0 2px}
+.slot{--s:clamp(36px,9vw,54px);width:var(--s);aspect-ratio:1;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line);display:grid;place-items:center;color:var(--muted);font-family:var(--f-num);font-size:15px}
+.slot.filled{box-shadow:none}
+.slot.special:not(.filled){box-shadow:inset 0 0 0 2px rgba(255,85,17,.5);color:var(--led-soft)}
+.sub-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.sub-row .lbl{font-size:13px;color:var(--muted);letter-spacing:.1em;min-width:5.5em}
+
+.ball{--c:var(--red);--s:48px;width:var(--s);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;flex:none;
+  background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.5),rgba(255,255,255,0) 38%),radial-gradient(circle at 70% 80%,rgba(0,0,0,.3),rgba(0,0,0,0) 58%),var(--c);
+  box-shadow:inset 0 -3px 6px rgba(0,0,0,.22),0 2px 6px rgba(0,0,0,.35)}
+.ball.blue{--c:var(--blue)} .ball.green{--c:var(--green)} .ball.red{--c:var(--red)}
+.ball b{width:62%;aspect-ratio:1;border-radius:50%;background:#fff;color:#141414;display:grid;place-items:center;font-family:var(--f-num);font-weight:700;font-size:calc(var(--s) * .4);line-height:1;font-variant-numeric:tabular-nums}
+.slot .ball{--s:inherit;width:100%;animation:ballIn 260ms var(--ease-out) both}
+#sorted .ball{animation:ballIn 260ms var(--ease-out) both;animation-delay:calc(var(--i,0) * 40ms)}
+
+.history{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.history li{display:grid;grid-template-columns:minmax(92px,auto) 1fr;gap:6px 16px;align-items:center;padding:12px 0;box-shadow:0 -1px 0 rgba(255,236,214,.06)}
+.history li:first-child{box-shadow:none;padding-top:2px}
+.meta{display:grid;line-height:1.3}
+.meta .no{font-family:var(--f-num);font-size:19px;font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.meta time,.meta .tag{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.history .ball{--s:32px}
+.history .plus{font-size:20px}
+.batch-list{max-height:440px;overflow:auto;overscroll-behavior:contain;padding-right:4px;-webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent);padding-bottom:20px}
+.empty{color:var(--muted);font-size:14px;margin:0}
+.textbtn{background:none;border:0;box-shadow:var(--ring);color:var(--muted);border-radius:999px;padding:4px 12px;font:inherit;font-size:12px;cursor:pointer;transition:color 160ms ease,transform 160ms var(--ease-out)}
+.textbtn:active{transform:scale(.97)}
+/* 按住清除：慢慢填滿是在「決定」，放開要即時回彈 */
+.hold-btn{position:relative;overflow:hidden;background:rgba(255,255,255,.04);border:0;box-shadow:var(--ring);color:var(--muted);border-radius:999px;padding:6px 14px;font:inherit;font-size:12px;cursor:pointer;transition:transform 160ms var(--ease-out),color 160ms ease}
+.hold-btn:active{transform:scale(.97)}
+.hold-btn .fill{position:absolute;inset:0;background:var(--danger);clip-path:inset(0 100% 0 0);transition:clip-path 200ms var(--ease-out)}
+.hold-btn.holding .fill{clip-path:inset(0 0 0 0);transition:clip-path 1200ms linear}
+.hold-btn .lbl-txt{position:relative}
+.hold-btn.holding{color:#fff}
+footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
+.credit{display:inline-block;margin-top:8px;color:var(--fg);letter-spacing:.04em}
+.credit a{color:var(--led-soft);text-decoration:none}
+.credit a:focus-visible{text-decoration:underline}
+
+@media (hover:hover) and (pointer:fine){
+  .btn-secondary:hover:not(:disabled){background:rgba(255,255,255,.1)}
+  .tab:hover:not([aria-selected="true"]){color:var(--fg)}
+  .textbtn:hover,.hold-btn:hover{color:var(--fg)}
+  .credit a:hover{text-decoration:underline}
+  .seg button:hover:not([aria-pressed="true"]){color:var(--fg)}
+  .picker button:hover:not([aria-pressed="true"]){background:rgba(255,255,255,.06)}
+}
+
+/* ---------- 統計 ---------- */
+.stats-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.seg{position:relative;display:inline-flex;flex-wrap:wrap;background:var(--raise);box-shadow:var(--ring);border-radius:12px;padding:3px;gap:2px}
+.seg .ind{border-radius:9px}
+.seg button{position:relative;z-index:1;font:inherit;font-size:13px;color:var(--muted);background:none;border:0;border-radius:9px;padding:6px 12px;cursor:pointer;transition:color 200ms ease,transform 160ms var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button[aria-pressed="true"]{color:var(--on-led);font-weight:700}
+.seg button:focus-visible,.picker button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.demo-note{margin:0;font-size:12px;color:var(--led-soft)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.tile{background:var(--raise);border-radius:10px;padding:12px 14px;display:grid;gap:2px;min-width:0}
+.tile .k{font-size:12px;color:var(--muted);letter-spacing:.08em}
+.tile .v{font-family:var(--f-num);font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.tile .v small{font-size:15px;font-weight:500;color:var(--muted);margin-left:2px}
+.tile .s{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.stat-body{display:grid;gap:14px}
+.sub-row-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.sub-h{font-size:13px;color:var(--muted);letter-spacing:.14em;margin:4px 0 0;font-weight:700}
+.heat-wrap{display:grid;gap:8px}
+.heat{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;max-width:600px}
+.cell{position:relative;aspect-ratio:1;border-radius:8px;display:grid;place-items:center;align-content:center;color:var(--fg);min-width:0}
+.cell .dot{position:absolute;top:6px;left:6px;width:7px;height:7px;border-radius:50%}
+.cell .n{font-family:var(--f-num);font-weight:700;font-size:clamp(15px,3.6vw,22px);line-height:1;font-variant-numeric:tabular-nums}
+.cell .c{font-size:11px;opacity:.85;font-variant-numeric:tabular-nums;line-height:1.3}
+.dot.red{background:var(--red)} .dot.blue{background:var(--blue)} .dot.green{background:var(--green)}
+.heat-legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.heat-legend .ramp{width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,rgba(255,85,17,.08),rgba(255,85,17,.9))}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.card{background:var(--raise);border-radius:10px;padding:12px 14px;display:grid;gap:10px;align-content:start;min-width:0}
+.card h3{margin:0;font-size:14px;font-weight:700;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card h3 span{font-size:12px;font-weight:400;color:var(--muted)}
+.card p{margin:0;font-size:13px;color:var(--muted)}
+.card p b{color:var(--fg);font-family:var(--f-num);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.rank{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.rank li{display:flex;align-items:center;gap:8px;font-size:13px;min-height:28px}
+.rank .ball{--s:28px}
+.rank .val{margin-left:auto;font-family:var(--f-num);font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rank .val small{font-family:var(--f-display);font-size:12px;color:var(--muted);margin-left:2px}
+.bars{display:grid;gap:5px}
+.bars .row{display:grid;grid-template-columns:4.6em minmax(0,1fr) 3.4em;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.bars .track{height:12px;background:rgba(255,255,255,.05);border-radius:0 4px 4px 0}
+.bars .fill{height:100%;background:var(--led);border-radius:0 4px 4px 0;min-width:2px}
+.bars .num{text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+.cols{display:flex;align-items:flex-end;gap:2px;height:96px;padding-top:4px;box-shadow:inset 0 -1px 0 var(--line)}
+.cols .colbar{flex:1;background:var(--led);border-radius:4px 4px 0 0;min-height:2px}
+.cols-axis{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.verdict{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--fg);width:fit-content}
+.verdict i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.verdict.ok i{background:#5bd07a} .verdict.warn i{background:#f2b33d}
+.picker{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;max-width:320px}
+.picker button{aspect-ratio:1;border-radius:50%;border:0;box-shadow:var(--ring);background:none;transition:background-color 160ms ease,color 160ms ease,transform 160ms var(--ease-out);color:var(--fg);font-family:var(--f-num);font-size:14px;cursor:pointer;padding:0;font-variant-numeric:tabular-nums}
+.picker button:active{transform:scale(.94)}
+.picker button[aria-pressed="true"]{background:var(--led);color:var(--on-led);box-shadow:none;font-weight:700}
+.prize{width:100%;border-collapse:collapse;font-size:13px}
+.prize th,.prize td{padding:5px 4px;box-shadow:inset 0 -1px 0 rgba(255,236,214,.07);text-align:left}
+.prize th{color:var(--muted);font-weight:500}
+.prize td.r,.prize th.r{text-align:right;font-variant-numeric:tabular-nums}
+.stat-empty{margin:0;color:var(--muted);font-size:14px}
+.tip{position:fixed;z-index:30;pointer-events:none;background:#0d0b09;color:var(--fg);border-radius:8px;padding:6px 10px;font-size:12px;white-space:nowrap;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.4);
+  opacity:0;transform:translate(-50%,calc(-100% - 10px)) scale(.97);transform-origin:50% 100%;transition:opacity 125ms var(--ease-out),transform 125ms var(--ease-out)}
+.tip.show{opacity:1;transform:translate(-50%,calc(-100% - 10px)) scale(1)}
+@media (max-width:520px){
+  .stage{aspect-ratio:4/5}
+  .pill{font-size:12px;padding:4px 10px}
+  .pill .num{font-size:14px}
+  .history li{grid-template-columns:1fr}
+  .tabs{width:100%}
+  .tab{flex:1;padding:8px 10px}
+  .dock-msg{margin-left:0;flex-basis:100%}
+}
+@media (prefers-reduced-motion:reduce){
+  .slot .ball,#sorted .ball,.stage-result .ball{animation:fadeOnly 200ms ease both}
+  .stage-result{transition:opacity 200ms ease}
+  @starting-style{.stage-result{transform:translate(-50%,0)}}
+  .busy .dot{animation:none}
+  .ind{transition:none}
+}
+@keyframes fadeOnly{from{opacity:0}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div>
+      <h1>六合彩攪珠機</h1>
+      <p class="sub">第五代攪珠機 3D 模擬・氣流攪拌、中央光柱升珠、弧形軌道收珠</p>
+    </div>
+    <div class="spec" aria-label="規格">
+      <span class="chip">49 球</span><span class="chip">攪出 6 個號碼</span><span class="chip">＋1 特別號碼</span>
+    </div>
+  </header>
+
+  <section class="stage" id="stage" aria-label="攪珠機 3D 畫面">
+    <canvas id="scene"></canvas>
+    <div class="hud">
+      <span class="pill" id="statusPill"><span class="dot"></span><span id="status" aria-live="polite">待命</span></span>
+      <span class="pill">第 <span class="num" id="drawNo">001</span> 次・已攪出 <span class="num" id="count">0</span>/7</span>
+    </div>
+    <div class="stage-result" id="stageResult" hidden aria-live="polite"></div>
+    <div class="nogl" id="nogl" hidden>此裝置未能顯示 3D 畫面，攪球結果照常產生。</div>
+  </section>
+
+  <section class="dock" aria-label="攪珠控制">
+    <div class="dock-main">
+      <button id="drawBtn" type="button">攪球</button>
+      <form class="batch" id="batchForm" novalidate>
+        <label for="batchN">直接攪珠</label>
+        <span class="field" id="batchField"><input id="batchN" type="number" inputmode="numeric" enterkeyhint="go" min="1" max="1000" step="1" value="100" aria-describedby="batchMsg"><span class="unit">次</span></span>
+        <button type="submit" id="batchBtn" class="btn-secondary">顯示結果</button>
+      </form>
+    </div>
+    <div class="dock-sub">
+      <label class="switch"><input type="checkbox" id="fast"><span></span>快速攪珠</label>
+      <label class="switch"><input type="checkbox" id="sound" checked><span></span>撞擊音效</label>
+      <span class="hint">拖曳畫面轉動視角・雙擊回正</span>
+      <p class="hint dock-msg" id="batchMsg" aria-live="polite">直接攪珠不播放動畫，即時產生 1–1000 期</p>
+    </div>
+  </section>
+
+  <div class="tabs" role="tablist" aria-label="內容" id="tabs">
+    <span class="ind" aria-hidden="true"></span>
+    <button class="tab" role="tab" type="button" id="tab-result" data-tab="result" aria-controls="pane-result" aria-selected="true">本次結果</button>
+    <button class="tab" role="tab" type="button" id="tab-stats" data-tab="stats" aria-controls="pane-stats" aria-selected="false" tabindex="-1">統計</button>
+    <button class="tab" role="tab" type="button" id="tab-history" data-tab="history" aria-controls="pane-history" aria-selected="false" tabindex="-1">攪珠紀錄<span class="count" id="histCount">0</span></button>
+  </div>
+
+  <div class="pane" id="pane-result" role="tabpanel" aria-labelledby="tab-result">
+    <section class="panel" aria-labelledby="curTitle">
+      <div class="row-head"><h2 id="curTitle">本次結果</h2><span class="hint" id="curMeta">按「攪球」開始</span></div>
+      <div class="sub-row">
+        <span class="lbl">攪出次序</span>
+        <div class="balls" id="slots"></div>
+      </div>
+      <div class="sub-row" id="sortedRow" hidden>
+        <span class="lbl">由小至大</span>
+        <div class="balls" id="sorted"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="batchPanel" aria-labelledby="batchTitle" hidden>
+      <div class="row-head"><h2 id="batchTitle">直接攪珠結果</h2><span class="hint" id="batchMeta"></span></div>
+      <div class="batch-list" tabindex="0" aria-label="直接攪珠結果列表"><ol class="history" id="batchList"></ol></div>
+    </section>
+  </div>
+
+  <div class="pane" id="pane-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+  <section class="panel" id="stats" aria-labelledby="statTitle">
+    <div class="stats-head">
+      <h2 id="statTitle">統計</h2>
+      <div class="seg" role="group" aria-label="數據來源">
+        <button type="button" id="srcMine" aria-pressed="true">我的紀錄</button>
+        <button type="button" id="srcDemo" aria-pressed="false">示範數據</button>
+      </div>
+    </div>
+    <p class="demo-note" id="demoNote" hidden>正在顯示 500 期示範數據：以亂數即時產生，只供預覽統計功能，不是實際攪珠紀錄。</p>
+    <div class="tiles" id="tiles"></div>
+    <p class="stat-empty" id="statEmpty" hidden>尚未有攪珠紀錄。按「攪球」完成一期後，統計會在這裡出現；也可以先切換到「示範數據」預覽。</p>
+    <div class="stat-body" id="statBody">
+      <div class="heat-wrap">
+        <div class="sub-row-h">
+          <h3 class="sub-h">號碼熱度與排行</h3>
+          <div class="seg" role="group" aria-label="統計範圍" id="modeSeg">
+            <button type="button" data-mode="main" aria-pressed="true">正選</button>
+            <button type="button" data-mode="special" aria-pressed="false">特別號碼</button>
+            <button type="button" data-mode="all" aria-pressed="false">正選＋特別</button>
+          </div>
+        </div>
+        <div class="heat" id="heat"></div>
+        <div class="heat-legend"><span>少</span><span class="ramp"></span><span>多</span><span>・格內數字為出現次數，滑過可看遺漏期數</span></div>
+      </div>
+      <div class="cards" id="rankCards"></div>
+      <h3 class="sub-h">組合與分布</h3>
+      <div class="cards" id="distCards"></div>
+      <h3 class="sub-h">檢定、對獎與使用</h3>
+      <div class="cards" id="miscCards"></div>
+    </div>
+  </section>
+
+  </div>
+
+  <div class="pane" id="pane-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+    <section class="panel" aria-labelledby="histTitle">
+      <div class="row-head"><h2 id="histTitle">攪珠紀錄</h2><button class="hold-btn" id="clearBtn" type="button" hidden aria-label="按住約 1 秒清除所有攪珠紀錄"><span class="fill" aria-hidden="true"></span><span class="lbl-txt">按住清除紀錄</span></button></div>
+      <ol class="history" id="history"></ol>
+      <p class="empty" id="histEmpty">尚未有攪珠紀錄。</p>
+    </section>
+  </div>
+
+  <footer>本頁為攪珠過程的視覺模擬，與香港賽馬會無關，僅供娛樂與示範。號碼由物理模擬決定：攪拌減慢後最先落入升珠管洞口的彩球即為攪出號碼，氣流亂數每次以瀏覽器加密隨機數（crypto.getRandomValues）重新播種；無法顯示 3D 時改用加密隨機數直接抽選。紀錄只存於此瀏覽器。<br><span class="credit">© 2026 <a href="https://www.instagram.com/n_do.w/" target="_blank" rel="noopener">@n_do.w</a>・<a href="https://www.instagram.com/naldo.design/" target="_blank" rel="noopener">@naldo.design</a>　版權所有，未經授權不得轉載。</span></footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  /* ---------- 號碼與顏色（六合彩紅藍綠波色） ---------- */
+  const RED = [1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46];
+  const BLUE = [3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48];
+  const colorName = n => RED.includes(n) ? 'red' : BLUE.includes(n) ? 'blue' : 'green';
+  const HEX = { red:'#d8343b', blue:'#2b8cd6', green:'#2a9f50' };
+
+  const $ = s => document.querySelector(s);
+  const stage = $('#stage'), canvas = $('#scene'), btn = $('#drawBtn'), fastEl = $('#fast'), soundEl = $('#sound');
+  const statusEl = $('#status'), statusPill = $('#statusPill'), countEl = $('#count'), drawNoEl = $('#drawNo');
+  const slotsEl = $('#slots'), sortedEl = $('#sorted'), sortedRow = $('#sortedRow'), curMeta = $('#curMeta');
+  const stageResult = $('#stageResult'), histCount = $('#histCount'), histEl = $('#history'), histEmpty = $('#histEmpty'), clearBtn = $('#clearBtn');
+
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) fastEl.checked = true;
+
+  /* ---------- 幾何常數 ---------- */
+  const R = 5, r = 0.34, FLOOR = -5, RR = 5.55, TOPY = RR, COLR = 0.46, G = -18;
+  const DEG = Math.PI / 180, END_L = 210 * DEG, END_R = -30 * DEG;
+  const STEP_A = (2 * r + 0.03) / RR, CAP = 0.075;
+  // 弧形入球架：5 行，每行 10 粒（最後一行 9 粒），由下到上、左到右排列
+  const TUBE_X = [-1.64, -0.82, 0, 0.82, 1.64], TUBE_YB = -0.4, SP = 2 * r + 0.02, TUBE_R = 0.385;
+  const tubeZ = x => -1.1 + x * x / 6;
+  const TUBE_BOT = TUBE_YB - r - 0.08, TUBE_LEN = 7.3, RACK_LIFT = 3.2;
+  // 中央升珠管：底部固定在球底洞口，管身往上伸出（colH = 管身高度）
+  const COL_FULL = TOPY - FLOOR - r * .6;
+  let colH = 0;
+
+  /* ---------- 隨機數 ---------- */
+  function secureInt(n) {
+    if (window.crypto && crypto.getRandomValues) {
+      const lim = Math.floor(0x100000000 / n) * n, a = new Uint32Array(1);
+      let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim);
+      return x % n;
+    }
+    return Math.floor(Math.random() * n);
+  }
+
+  /* ---------- 補間系統 ---------- */
+  const tasks = new Set();
+  const speed = () => fastEl.checked ? 3 : 1;
+  const tween = (ms, fn) => new Promise(res => tasks.add({ t:0, d:Math.max(ms,1)/1000, fn, res }));
+  const wait = ms => tween(ms, () => {});
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  const easeInOut = t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+  const easeInOutCubic = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+
+  /* ---------- 3D 場景 ---------- */
+  let has3D = false, renderer, scene, camera, colGroup, colTop, glowMesh, glowMat, colLight, railGlowMat, indA, indB;
+  const tubes = [];
+  const balls = [];
+  const byN = {};
+
+  try {
+    if (typeof THREE === 'undefined') throw new Error('no three');
+    renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    has3D = true;
+  } catch (e) { $('#nogl').hidden = false; canvas.hidden = true; }
+
+  function rimMat(color, strength, power) {
+    return new THREE.ShaderMaterial({
+      uniforms:{ c:{value:new THREE.Color(color)}, s:{value:strength}, p:{value:power} },
+      vertexShader:`varying vec3 vN; varying vec3 vV;
+        void main(){ vec4 mv = modelViewMatrix*vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+      fragmentShader:`uniform vec3 c; uniform float s; uniform float p; varying vec3 vN; varying vec3 vV;
+        void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), p); gl_FragColor = vec4(c, clamp(f*s,0.0,1.0)); }`,
+      transparent:true, depthWrite:false, side:THREE.DoubleSide
+    });
+  }
+  const glassMat = (op) => new THREE.MeshPhysicalMaterial({ color:0xffffff, transparent:true, opacity:op, roughness:.05, metalness:0, clearcoat:1, side:THREE.DoubleSide, depthWrite:false });
+
+  function ballTexture(n, hex) {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = hex; g.fillRect(0,0,512,256);
+    const patches = [[0,0],[.25,0],[.5,0],[.75,0],[.125,48],[.625,48],[.375,-48],[.875,-48]];
+    for (const [u, lat] of patches) {
+      const y = (0.5 - lat/180) * 256, sx = 1 / Math.cos(lat * DEG);
+      for (const off of [-512, 0, 512]) {
+        g.save(); g.translate(u*512 + off, y); g.scale(sx, 1);
+        g.fillStyle = '#ffffff'; g.beginPath(); g.arc(0,0,33,0,Math.PI*2); g.fill();
+        g.fillStyle = '#161616'; g.font = '700 38px "Barlow Condensed", "Arial Narrow", sans-serif';
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), 0, 2);
+        if (n === 6 || n === 9) g.fillRect(-9, 19, 18, 3);
+        g.restore();
+      }
+    }
+    const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t;
+  }
+
+  function build() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+
+    scene.add(new THREE.AmbientLight(0xffffff, .5));
+    scene.add(new THREE.HemisphereLight(0xfff4e6, 0x3a2a1f, .5));
+    const key = new THREE.DirectionalLight(0xffffff, .75); key.position.set(5, 10, 9); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffe2cc, .35); fill.position.set(-8, 2, 6); scene.add(fill);
+    colLight = new THREE.PointLight(0xbfe3ff, 0, 7); colLight.position.set(0, FLOOR, .6); scene.add(colLight);
+
+    // 球體
+    const sg = new THREE.SphereGeometry(R + 0.04, 72, 48);
+    scene.add(new THREE.Mesh(sg, glassMat(.05)));
+    const rim = new THREE.Mesh(sg, rimMat(0xffffff, .75, 2.4)); rim.renderOrder = 3; scene.add(rim);
+
+    // 底盤
+    // 球體底部：弧形暗紅內壁，最低點中央是洞口
+    const capA = Math.acos(3.3 / R), holeA = Math.asin((COLR + .03) / R);
+    const bowl = new THREE.Mesh(new THREE.SphereGeometry(R - .01, 72, 24, 0, Math.PI*2, Math.PI - capA, capA - holeA),
+      new THREE.MeshStandardMaterial({ color:0xa8380b, emissive:0x000000, roughness:.6, side:THREE.BackSide }));
+    scene.add(bowl);
+    const well = new THREE.Mesh(new THREE.CylinderGeometry(COLR + .03, COLR + .03, .45, 32, 1, true), new THREE.MeshStandardMaterial({ color:0x180506, roughness:.8, side:THREE.BackSide }));
+    well.position.y = FLOOR - .2; scene.add(well);
+    const holeRim = new THREE.Mesh(new THREE.TorusGeometry(COLR + .04, .045, 8, 40), new THREE.MeshStandardMaterial({ color:0xe9e3df, roughness:.35, metalness:.2 }));
+    holeRim.rotation.x = Math.PI/2; holeRim.position.y = FLOOR + .03; scene.add(holeRim);
+
+    // 中央升珠管：由洞口往上伸縮，推珠時照亮彩球下方的管身
+    const colGeo = new THREE.CylinderGeometry(COLR, COLR, 1, 32, 1, true); colGeo.translate(0, .5, 0);
+    colGroup = new THREE.Group(); colGroup.position.y = FLOOR; scene.add(colGroup);
+    colGroup.add(new THREE.Mesh(colGeo, glassMat(.16)));
+    const colRim = new THREE.Mesh(colGeo, rimMat(0xffffff, .9, 2.0)); colRim.renderOrder = 3; colGroup.add(colRim);
+    colTop = new THREE.Mesh(new THREE.TorusGeometry(COLR, .05, 8, 32), new THREE.MeshStandardMaterial({ color:0xffffff, roughness:.4 }));
+    colTop.rotation.x = Math.PI/2; scene.add(colTop);
+    glowMat = new THREE.MeshBasicMaterial({ color:0xd6ecff, transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide });
+    const gGeo = new THREE.CylinderGeometry(COLR - .04, COLR - .04, 1, 32, 1, false); gGeo.translate(0, .5, 0);
+    glowMesh = new THREE.Mesh(gGeo, glowMat); glowMesh.position.y = FLOOR; glowMesh.scale.y = .001; glowMesh.renderOrder = 4; scene.add(glowMesh);
+
+    // 收珠弧軌（軌道亮白光）
+    const arc = END_L - END_R;
+    const chGeo = new THREE.TorusGeometry(RR, .42, 18, 200, arc);
+    const ch = new THREE.Mesh(chGeo, glassMat(.1)); ch.rotation.z = END_R; scene.add(ch);
+    const chRim = new THREE.Mesh(chGeo, rimMat(0xffffff, .7, 2.2)); chRim.rotation.z = END_R; chRim.renderOrder = 3; scene.add(chRim);
+    railGlowMat = new THREE.MeshBasicMaterial({ color:0xfff8ee, transparent:true, opacity:.22, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.BackSide });
+    const railGlow = new THREE.Mesh(new THREE.TorusGeometry(RR, .44, 18, 200, arc), railGlowMat);
+    railGlow.rotation.z = END_R; railGlow.renderOrder = 4; scene.add(railGlow);
+    const strip = new THREE.Mesh(new THREE.TorusGeometry(RR + .56, .16, 12, 200, arc), new THREE.MeshBasicMaterial({ color:0xffffff }));
+    strip.rotation.z = END_R; scene.add(strip);
+
+    const white = new THREE.MeshStandardMaterial({ color:0xf4f2ef, roughness:.35, metalness:.05 });
+    const up = new THREE.Vector3(0,1,0);
+    for (const th of [END_L, END_R]) {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(.44, .44, .1, 24), white);
+      cap.position.set(RR*Math.cos(th), RR*Math.sin(th), 0);
+      cap.quaternion.setFromUnitVectors(up, new THREE.Vector3(-Math.sin(th), Math.cos(th), 0));
+      scene.add(cap);
+    }
+
+    // 白色底座：托住球體底部的圓座＋柱身
+    const basePts = [[0,-7.9],[2.05,-7.9],[2.15,-7.82],[2.15,-6.2],[2.3,-5.75],[2.55,-5.25],[2.6,-4.95],[2.45,-4.62],[2.15,-4.5],[1.98,-4.57]]
+      .map(p => new THREE.Vector2(p[0], p[1]));
+    scene.add(new THREE.Mesh(new THREE.LatheGeometry(basePts, 96), new THREE.MeshStandardMaterial({ color:0xf4f2ef, roughness:.35, metalness:.05, side:THREE.DoubleSide })));
+
+    // 頂部接駁盒
+    const boxGeo = new THREE.BoxGeometry(1.3, 1.0, 1.0);
+    const box = new THREE.Mesh(boxGeo, glassMat(.12)); box.position.set(0, TOPY + .05, 0); scene.add(box);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), new THREE.LineBasicMaterial({ color:0xffffff, transparent:true, opacity:.7 }));
+    edges.position.copy(box.position); scene.add(edges);
+    indA = new THREE.Mesh(new THREE.SphereGeometry(.07, 12, 8), new THREE.MeshBasicMaterial({ color:0x4cff7a }));
+    indB = new THREE.Mesh(new THREE.SphereGeometry(.07, 12, 8), new THREE.MeshBasicMaterial({ color:0x3a1208 }));
+    indA.position.set(-.38, TOPY + .58, .4); indB.position.set(.38, TOPY + .58, .4); scene.add(indA, indB);
+
+    // 頂部入球架外罩（固定）
+    const crownGeo = new THREE.CylinderGeometry(3.45, 3.45, 2.6, 48, 1, true, Math.PI - .75, 1.5);
+    const crown = new THREE.Mesh(crownGeo, glassMat(.1)); crown.position.set(0, 6.1, 1.9); scene.add(crown);
+    const crownRim = new THREE.Mesh(crownGeo, rimMat(0xffffff, .55, 2.2)); crownRim.position.copy(crown.position); crownRim.renderOrder = 3; scene.add(crownRim);
+    // 入球管 ×5（弧形排列）
+    const tGeo = new THREE.CylinderGeometry(TUBE_R, TUBE_R, TUBE_LEN, 24, 1, true); tGeo.translate(0, TUBE_LEN/2, 0);
+    for (const x of TUBE_X) {
+      const g = new THREE.Group(); g.position.set(x, TUBE_BOT, tubeZ(x));
+      const gm = glassMat(.14), rm = rimMat(0xffffff, .8, 2.0);
+      const m1 = new THREE.Mesh(tGeo, gm), m2 = new THREE.Mesh(tGeo, rm); m2.renderOrder = 3;
+      const gateMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:.4, transparent:true, opacity:.9 });
+      const gate = new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R + .03, TUBE_R + .03, .06, 24), gateMat);
+      const ringMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:.4, transparent:true, opacity:1 });
+      const topRing = new THREE.Mesh(new THREE.TorusGeometry(TUBE_R, .05, 8, 28), ringMat);
+      topRing.rotation.x = Math.PI/2; topRing.position.y = TUBE_LEN;
+      g.add(m1, m2, gate, topRing); scene.add(g);
+      tubes.push({ g, gm, rm, gateMat, ringMat, gate });
+    }
+
+
+    // 彩球
+    const bgeo = new THREE.SphereGeometry(r, 36, 24);
+    for (const b of balls) {
+      b.mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardMaterial({ map:ballTexture(b.n, HEX[colorName(b.n)]), roughness:.55, metalness:0 }));
+      b.mesh.position.copy(b.p);
+      scene.add(b.mesh);
+    }
+  }
+
+  // 入球管顯示程度：1 = 降下可見，0 = 升起隱去
+  function setTubes(v) {
+    for (const t of tubes) {
+      t.g.position.y = TUBE_BOT + (1 - v) * RACK_LIFT;
+      const o = .45 + .55 * v;
+      t.gm.opacity = .14 * o; t.rm.uniforms.s.value = .8 * o; t.ringMat.opacity = o;
+    }
+  }
+  function setGates(v) { for (const t of tubes) { t.gateMat.opacity = .9 * v; t.gate.visible = v > .01; } }
+
+  /* ---------- 撞擊閃光 ---------- */
+  const flashes = [];
+  function makeFlashes() {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(32,32,0,32,32,32);
+    gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.25,'rgba(255,246,225,.75)'); gr.addColorStop(1,'rgba(255,240,210,0)');
+    g.fillStyle = gr; g.fillRect(0,0,64,64);
+    const tex = new THREE.CanvasTexture(c);
+    for (let i = 0; i < 28; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false }));
+      sp.visible = false; sp.renderOrder = 5; scene.add(sp); flashes.push({ sp, life:0, max:1, size:1 });
+    }
+  }
+  let flashIdx = 0;
+  function flash(x, y, z, e) {
+    if (!flashes.length) return;
+    const f = flashes[flashIdx++ % flashes.length];
+    if (f.life > 0 && f.life > f.max * .5) return;
+    f.sp.position.set(x, y, z); f.max = f.life = .16 + Math.min(.12, e * .02); f.size = .35 + Math.min(.7, e * .1); f.sp.visible = true;
+  }
+  function updateFlashes(dt) {
+    for (const f of flashes) {
+      if (f.life <= 0) continue;
+      f.life -= dt;
+      const k = Math.max(0, f.life / f.max);
+      f.sp.material.opacity = k * .9; f.sp.scale.setScalar(f.size * (1.4 - .6 * k));
+      if (f.life <= 0) f.sp.visible = false;
+    }
+  }
+
+  /* ---------- 彩球與物理 ---------- */
+  function slotPos(n) {
+    const i = n - 1, col = Math.floor(i / 10), row = i % 10;
+    return new THREE.Vector3(TUBE_X[col], TUBE_YB + row * SP, tubeZ(TUBE_X[col]));
+  }
+  function placeBalls() {
+    for (let n = 1; n <= 49; n++) {
+      const b = { n, p:slotPos(n), v:new THREE.Vector3(), w:new THREE.Vector3(), state:'tube', theta:Math.PI/2, side:0, sf:1, sfGoal:1, sfT:0, mesh:null };
+      balls.push(b); byN[n] = b;
+    }
+  }
+
+  let jet = 0, jetTarget = 0, jetRate = 2.5;
+  // 攪拌：4 個旋轉氣流噴口＋陣發強風；最高速比前版快 15%，每粒彩球速度隨機 ±20% 時快時慢
+  const JET = 48, JET_H = 1.5, SW_AIR = 10, SW_K = 1.2, TURB = 52, DRAG = .3, EB = .9, EW = .75, JET_MIN = .02, D2 = (2*r)**2;
+  let simT = 0, gust = 0, impactE = 0, dropping = false;
+  // 物理亂流用的亂數：每次攪珠以瀏覽器加密亂數重新播種
+  let rs = [0x9e3779b9, 0x243f6a88, 0xb7e15162, 0x12345678];
+  function reseed() {
+    const a = new Uint32Array(4);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a); else for (let i = 0; i < 4; i++) a[i] = Math.random() * 2**32;
+    rs = [a[0] | 1, a[1], a[2], a[3]];
+  }
+  function rnd() { // sfc32
+    let [a, b, c, d] = rs;
+    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    let t = (a + b) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); d = (d + 1) | 0; t = (t + d) | 0; c = (c + t) | 0;
+    rs = [a, b, c, d];
+    return (t >>> 0) / 4294967296;
+  }
+  // 抽珠狀態：升珠管縮回洞口、減慢攪拌，等候一粒彩球落入球底洞口
+  let capture = null;
+  const holeOpen = () => capture && !capture.found && colH < .02;
+  const HOLE_R = COLR + .03, RIM_Y = -Math.sqrt(R * R - HOLE_R * HOLE_R);
+
+  /* ---------- 撞擊音效（WebAudio 合成，首次按鈕後啟用） ---------- */
+  let actx = null, noiseBuf = null, lastSnd = 0;
+  function initAudio() {
+    if (actx) { if (actx.state === 'suspended') actx.resume().catch(() => {}); return; }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      actx = new AC();
+      noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * .05), actx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    } catch (e) { actx = null; }
+  }
+  function hit(e, x, wall, y, z) {
+    impactE += e;
+    if (e > 2.4 && y !== undefined) flash(x, y, z, e);
+    if (!actx || !soundEl.checked || actx.state !== 'running') return;
+    const now = actx.currentTime;
+    if (now - lastSnd < .024 || e < 1.8) return;
+    lastSnd = now;
+    try {
+      const src = actx.createBufferSource(); src.buffer = noiseBuf;
+      src.playbackRate.value = .8 + Math.random() * .5;
+      const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.value = wall ? 900 + Math.random() * 500 : 2200 + Math.random() * 2200; bp.Q.value = wall ? 2.5 : 5;
+      const g = actx.createGain(); g.gain.value = Math.min(.32, e * .035);
+      let out = g;
+      if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, x / 5)); g.connect(p); out = p; }
+      src.connect(bp); bp.connect(g); out.connect(actx.destination);
+      src.start(now);
+    } catch (err) {}
+  }
+
+  function step(dt) {
+    simT += dt;
+    if (jet > .01 && rnd() < dt * 2.2) gust = 1;           // 隨機陣發強風
+    gust = Math.max(0, gust - dt * 2.5);
+    const free = balls.filter(b => b.state === 'free');
+    for (const b of free) {
+      b.v.y += G * dt;
+      if (jet > .01) {
+        const h = b.p.y - FLOOR;
+        const az = Math.atan2(b.p.z, b.p.x);
+        const nozzle = Math.max(0, Math.sin(az * 2 - simT * 5));    // 旋轉噴口
+        const pulse = .5 + .8 * nozzle * nozzle + .6 * gust;
+        b.sfT -= dt;                                                  // 每粒彩球的速度係數 0.4–1.2，時快時慢
+        if (b.sfT <= 0) { b.sfGoal = .4 + .8 * rnd(); b.sfT = .25 + 1.25 * rnd(); }
+        b.sf += (b.sfGoal - b.sf) * Math.min(1, dt * 4);
+        const f = jet * b.sf;
+        if (h < JET_H) b.v.y += f * JET * pulse * (.5 + rnd()) * (1 - h/JET_H*.5) * dt;
+        const d = Math.hypot(b.p.x, b.p.z) + 1e-4;
+        // 旋轉氣流：把彩球的切向速度拉向氣流速度（氣流有多快，彩球最多就被帶到多快）
+        const vAir = SW_AIR * f * (1 + .6 * Math.sin(simT * 1.1));
+        const vt = (-b.p.z * b.v.x + b.p.x * b.v.z) / d;
+        const at = SW_K * (vAir - vt);
+        b.v.x += (-b.p.z/d * at + (-b.p.x/d * 5 * gust + (rnd() - .5) * TURB) * f) * dt;
+        b.v.z += ( b.p.x/d * at + (-b.p.z/d * 5 * gust + (rnd() - .5) * TURB) * f) * dt;
+        b.v.y += (rnd() - .5) * TURB * .6 * f * dt;
+      }
+      b.v.multiplyScalar(1 - DRAG * dt);
+      b.p.addScaledVector(b.v, dt);
+    }
+    for (let i = 0; i < free.length; i++) {
+      const a = free[i];
+      for (let j = i + 1; j < free.length; j++) {
+        const c = free[j];
+        const dx = c.p.x - a.p.x, dy = c.p.y - a.p.y, dz = c.p.z - a.p.z;
+        const d2 = dx*dx + dy*dy + dz*dz;
+        if (d2 >= D2 || d2 < 1e-10) continue;
+        const d = Math.sqrt(d2), nx = dx/d, ny = dy/d, nz = dz/d, ov = (2*r - d) * .5;
+        a.p.x -= nx*ov; a.p.y -= ny*ov; a.p.z -= nz*ov;
+        c.p.x += nx*ov; c.p.y += ny*ov; c.p.z += nz*ov;
+        const vn = (c.v.x - a.v.x)*nx + (c.v.y - a.v.y)*ny + (c.v.z - a.v.z)*nz;
+        if (vn < 0) {
+          const imp = -(1 + EB) * vn * .5;
+          a.v.x -= nx*imp; a.v.y -= ny*imp; a.v.z -= nz*imp;
+          c.v.x += nx*imp; c.v.y += ny*imp; c.v.z += nz*imp;
+          if (vn < -1.2) {                                              // 撞擊：閃光與聲音
+            hit(-vn, (a.p.x + c.p.x) * .5, false, (a.p.y + c.p.y) * .5, (a.p.z + c.p.z) * .5);
+            a.hits = (a.hits || 0) + 1; c.hits = (c.hits || 0) + 1;
+          }
+        }
+      }
+    }
+    for (const b of free) {
+      const dh = Math.hypot(b.p.x, b.p.z);
+      const open = holeOpen(), len0 = b.p.length();
+      // 洞口打開時，接觸點落在洞口範圍內就沒有球壁承托
+      const overHole = open && dh * R / Math.max(len0, 1e-6) < HOLE_R;
+      if (!overHole) {
+        const len = len0, lim = R - r;
+        const inOpening = dropping && b.p.y > 3.4 && Math.hypot(b.p.x, b.p.z + .6) < 2.2; // 落珠時球頂入球口才打開
+        if (len > lim && !inOpening) {
+          const nx = b.p.x/len, ny = b.p.y/len, nz = b.p.z/len;
+          b.p.set(nx*lim, ny*lim, nz*lim);
+          const vn = b.v.x*nx + b.v.y*ny + b.v.z*nz;
+          if (vn > 0) {
+            b.v.x -= nx*vn*(1 + EW); b.v.y -= ny*vn*(1 + EW); b.v.z -= nz*vn*(1 + EW);
+            if (vn > 1.8) hit(vn * .8, b.p.x, true, b.p.y, b.p.z);
+          }
+          b.v.multiplyScalar(1 - 1.2 * dt);                             // 弧形球底的滾動摩擦
+        }
+      }
+      if (open) {
+        // 洞口邊緣：彩球撞到邊緣會彈開或滾入
+        if (dh > 1e-5) {
+          const ex = b.p.x - HOLE_R * b.p.x / dh, ey = b.p.y - RIM_Y, ez = b.p.z - HOLE_R * b.p.z / dh;
+          const ed = Math.hypot(ex, ey, ez);
+          if (ed < r && ed > 1e-6 && b.p.y > RIM_Y - r) {
+            const nx = ex / ed, ny = ey / ed, nz = ez / ed, push = r - ed;
+            b.p.x += nx * push; b.p.y += ny * push; b.p.z += nz * push;
+            const vn = b.v.x * nx + b.v.y * ny + b.v.z * nz;
+            if (vn < 0) { b.v.x -= nx * vn * (1 + EW); b.v.y -= ny * vn * (1 + EW); b.v.z -= nz * vn * (1 + EW); }
+          }
+        }
+        // 井道內壁
+        if (b.p.y < RIM_Y && dh > HOLE_R - r) {
+          const k = (HOLE_R - r) / dh; b.p.x *= k; b.p.z *= k;
+          const vn = (b.v.x * b.p.x + b.v.z * b.p.z) / Math.max(1e-6, HOLE_R - r);
+          if (vn > 0) { b.v.x -= b.p.x / (HOLE_R - r) * vn * 1.5; b.v.z -= b.p.z / (HOLE_R - r) * vn * 1.5; }
+        }
+        // 完全掉進洞口才算抽出
+        if (b.p.y < RIM_Y - r * .35) { capture.found = b; continue; }
+      }
+      // 升珠管管身（由洞口往上伸出）
+      const cl = COLR + r;
+      if (colH > .02 && dh < cl && b.p.y - r * .7 < FLOOR + colH) {
+        const nx = dh > 1e-5 ? b.p.x/dh : 1, nz = dh > 1e-5 ? b.p.z/dh : 0;
+        b.p.x = nx*cl; b.p.z = nz*cl;
+        const vn = b.v.x*nx + b.v.z*nz;
+        if (vn < 0) { b.v.x -= nx*vn*(1 + EW); b.v.z -= nz*vn*(1 + EW); if (-vn > 1.8) hit(-vn * .7, b.p.x, true, b.p.y, b.p.z); }
+      }
+    }
+  }
+
+  const tmpAxis = has3D ? new THREE.Vector3() : null, tmpN = has3D ? new THREE.Vector3() : null, ZAX = has3D ? new THREE.Vector3(0,0,1) : null;
+  function spinFree(dt) {
+    for (const b of balls) {
+      if (b.state !== 'free') continue;
+      const len = b.p.length();
+      if (len > R - r - .03) { tmpN.copy(b.p).divideScalar(len); b.w.crossVectors(b.v, tmpN).divideScalar(r); }
+      else b.w.multiplyScalar(1 - .4*dt);
+      const ang = b.w.length() * dt;
+      if (ang > 1e-5) { tmpAxis.copy(b.w).normalize(); b.mesh.rotateOnWorldAxis(tmpAxis, ang); }
+    }
+  }
+
+  function setRail(b, th) {
+    const d = th - b.theta; b.theta = th;
+    b.p.set(RR*Math.cos(th), RR*Math.sin(th), 0);
+    if (has3D) b.mesh.rotateOnWorldAxis(ZAX, -d * RR / r);
+  }
+
+  /* ---------- 鏡頭導演：正面 / 俯視 / 跟拍 ---------- */
+  let camMode = 'front', followBall = null, frontDist = 30, topDist = 28, closeDist = 18;
+  let userYaw = 0, userPitch = 0, drag = null;
+  const cam = { yaw:0, pitch:.1, dist:30, tx:0, ty:-.1, tz:0 };
+  function camGoal() {
+    if (camMode === 'top') return { yaw:0, pitch:1.42, dist:topDist, tx:0, ty:-3.6, tz:0, rate:2.2 };
+    if (camMode === 'follow' && followBall) return { yaw:followBall.side * .32, pitch:.16, dist:9.5, tx:followBall.p.x, ty:followBall.p.y, tz:0, rate:2.6 };
+    if (camMode === 'close') return { yaw:0, pitch:.14, dist:closeDist, tx:0, ty:-2.4, tz:0, rate:.35 };   // 正面慢慢拉近球體
+    return { yaw:0, pitch:.1, dist:frontDist, tx:0, ty:-.1, tz:0, rate:1.8 };
+  }
+  function fit() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+    const t = Math.tan(camera.fov / 2 * DEG);
+    frontDist = Math.max(7.7 / t, 6.9 / (t * camera.aspect)) + 3;
+    topDist = 6.6 / (t * Math.min(1, camera.aspect)) + 3;
+    closeDist = 5.4 / (t * Math.min(1, camera.aspect)) + 3;
+  }
+  if (has3D) {
+    canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, yaw:userYaw, pitch:userPitch }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); });
+    canvas.addEventListener('pointermove', e => {
+      if (!drag) return;
+      userYaw = Math.max(-1.1, Math.min(1.1, drag.yaw - (e.clientX - drag.x) * .006));
+      userPitch = Math.max(-.15, Math.min(.45, drag.pitch + (e.clientY - drag.y) * .004));
+    });
+    const end = () => { drag = null; canvas.classList.remove('dragging'); };
+    canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+    canvas.addEventListener('dblclick', () => { userYaw = 0; userPitch = 0; });
+  }
+
+  /* ---------- 主循環 ---------- */
+  let glowI = 0, glowH = 0, liftBall = null, railI = 0, busy = false, last = performance.now(), clock = 0;
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now; clock += dt;
+    jet += (jetTarget - jet) * Math.min(1, dt * jetRate);
+    if (has3D) for (let i = 0; i < 3; i++) step(dt / 3);
+    for (const tk of [...tasks]) {
+      tk.t += dt * speed();
+      const k = Math.min(1, tk.t / tk.d);
+      tk.fn(k);
+      if (k >= 1) { tasks.delete(tk); tk.res(); }
+    }
+    if (has3D) {
+      spinFree(dt);
+      for (const b of balls) b.mesh.position.copy(b.p);
+      colGroup.scale.y = Math.max(.001, colH); colGroup.visible = colH > .01;
+      colTop.position.y = FLOOR + colH; colTop.visible = colH > .01;
+      updateFlashes(dt);
+
+      // 光柱：推珠時照亮彩球下方的管身
+      if (liftBall) { glowH = Math.max(.001, colH); glowI += (1 - glowI) * Math.min(1, dt * 10); }
+      else glowI += (0 - glowI) * Math.min(1, dt * 3 * speed());
+      glowMesh.scale.y = Math.max(.001, glowH);
+      glowMat.opacity = .85 * glowI;
+      colLight.intensity = 2.6 * glowI;
+      colLight.position.y = FLOOR + glowH * .5;
+      if (holeOpen()) {
+        capture.t += dt;
+        const t = capture.t;
+        jetRate = .9;
+        jetTarget = Math.max(JET_MIN, 1 - t / 6);            // 逐步減速，最慢保持 2%
+      }
+      if (capture && capture.found) { const c = capture; capture = null; c.found.state = 'held'; c.found.wait = c.t; c.res(c.found); }
+
+      // 弧軌白光
+      railI = Math.max(0, railI - dt * .9 * speed());
+      railGlowMat.opacity = .22 + .5 * railI;
+
+      const blinkOn = Math.floor(clock * 3) % 2 === 0;
+      indA.material.color.setHex(busy ? 0x0f3a1a : 0x4cff7a);
+      indB.material.color.setHex(busy && blinkOn ? 0xff3b1f : 0x3a1208);
+
+      const g = camGoal();
+      const a = 1 - Math.exp(-dt * g.rate * (fastEl.checked ? 2 : 1));
+      const at = camMode === 'follow' ? 1 - Math.exp(-dt * 7) : a;
+      const pitchGoal = Math.max(-.05, Math.min(1.45, g.pitch + userPitch));
+      cam.yaw += (g.yaw + userYaw - cam.yaw) * a;
+      cam.pitch += (pitchGoal - cam.pitch) * a;
+      cam.dist += (g.dist - cam.dist) * a;
+      cam.tx += (g.tx - cam.tx) * at; cam.ty += (g.ty - cam.ty) * at; cam.tz += (g.tz - cam.tz) * at;
+      camera.position.set(
+        cam.tx + cam.dist * Math.sin(cam.yaw) * Math.cos(cam.pitch),
+        cam.ty + cam.dist * Math.sin(cam.pitch),
+        cam.tz + cam.dist * Math.cos(cam.yaw) * Math.cos(cam.pitch));
+      // 撞擊震動：俯視攪拌時鏡頭隨撞擊能量輕微抖動
+      impactE *= Math.exp(-dt * 6);
+      camera.lookAt(cam.tx, cam.ty, cam.tz);
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- 攪珠流程 ---------- */
+  const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function swapText(el, t) {
+    if (el.textContent === t) return;
+    el.textContent = t;
+    if (el.animate) el.animate(reduceMotion() ? [{ opacity:.4 }, { opacity:1 }] : [{ opacity:.35, filter:'blur(2px)' }, { opacity:1, filter:'blur(0)' }], { duration:180, easing:'cubic-bezier(.23,1,.32,1)' });
+  }
+  function setStatus(t) { swapText(statusEl, t); }
+
+  // 將新一套彩球放入入球管，排成 5 行
+  async function reload() {
+    setStatus('將新一套彩球放入機內');
+    camMode = 'front';
+    const h0 = colH;
+    await tween(700, k => { setTubes(easeInOut(k)); setGates(k); colH = h0 * (1 - easeInOut(k)); });
+    colH = 0;
+    const moves = balls.map(b => {
+      b.state = 'held';
+      return { b, from:b.p.clone(), to:slotPos(b.n), q0:b.mesh.quaternion.clone(), delay:(b.n - 1) * .012 };
+    });
+    const q1 = new THREE.Quaternion();
+    await tween(1400, k => {
+      const T = k * 1.4;
+      for (const m of moves) {
+        const t = clamp01((T - m.delay) / .8), e = easeInOutCubic(t);
+        m.b.p.lerpVectors(m.from, m.to, e);
+        m.b.p.y += Math.sin(Math.PI * t) * 1.2;
+        m.b.mesh.quaternion.copy(m.q0).slerp(q1, e);
+      }
+    });
+    for (const m of moves) { m.b.p.copy(m.to); m.b.mesh.quaternion.identity(); m.b.state = 'tube'; m.b.v.set(0,0,0); m.b.w.set(0,0,0); }
+    await wait(500);
+  }
+
+  // 打開閘門，5 行彩球由下而上落入球體
+  async function dropFromTubes() {
+    setStatus('升珠管由洞口往上推出');
+    const h0 = colH;
+    await tween(1000, k => { colH = h0 + (COL_FULL - h0) * easeInOutCubic(k); });
+    colH = COL_FULL;
+    setStatus('入球管升起，彩球落入球體');
+    dropping = true;
+    await tween(220, k => setGates(1 - k));
+    const order = balls.filter(b => b.state === 'tube').map(b => ({ b, at:((b.n - 1) % 10) * .045 + rnd() * .01 }));
+    await tween(1100, k => {
+      const T = k * 1.1, e = easeInOut(k);
+      setTubes(1 - e);
+      for (const o of order) {
+        if (o.b.state === 'tube' && T >= o.at) {
+          o.b.state = 'free';
+          o.b.sf = o.b.sfGoal = .4 + .8 * rnd(); o.b.sfT = rnd();        // 速度係數 0.4–1.2
+          o.b.v.set((rnd() - .5) * .4, -.5, (rnd() - .5) * .4);
+          o.b.w.set(0, 0, 0);
+        }
+      }
+    });
+    await wait(1100);
+    dropping = false;
+  }
+
+
+  async function drawBall(k) {
+    const isSpecial = k === 6;
+    glowMat.color.setHex(isSpecial ? 0xffc2bd : 0xd6ecff);
+    colLight.color.setHex(isSpecial ? 0xff7a6e : 0xbfe3ff);
+
+    // 升珠管縮回洞口（正面），然後開始減速並轉俯視，等候一粒彩球落入洞口
+    setStatus('升珠管縮回洞口');
+    const h0 = colH;
+    await tween(1100, t => { colH = h0 * (1 - easeInOutCubic(t)); });
+    colH = 0;
+    camMode = 'top'; followBall = null;
+    setStatus(isSpecial ? '攪拌減慢，等候特別號碼落入洞口' : `攪拌減慢，等候第 ${k + 1} 粒落入洞口`);
+    const b = await new Promise(res => { capture = { t:0, found:null, res }; });
+
+    // 落入洞口
+    setStatus(isSpecial ? `特別號碼 ${b.n} 落入洞口` : `第 ${k + 1} 個號碼 ${b.n} 落入洞口`);
+    hit(3, 0, true, FLOOR + r, 0);
+    camMode = 'front';
+    const from = b.p.clone(), seat = new THREE.Vector3(0, Math.min(from.y, FLOOR + r * .4), 0);
+    await tween(200, t => { b.p.x = from.x * (1 - t); b.p.z = from.z * (1 - t); });
+    await wait(600);
+
+    // 升珠管把彩球往上推上弧軌
+    setStatus(isSpecial ? `推上特別號碼 ${b.n}` : `推上第 ${k + 1} 個號碼 ${b.n}`);
+    liftBall = b; glowH = .001;
+    const y0 = seat.y;
+    await tween(1400, t => {
+      b.p.set(0, y0 + (TOPY - y0) * easeInOutCubic(t), 0);
+      colH = Math.max(0, b.p.y - r * .6 - FLOOR);
+    });
+    colH = COL_FULL;
+    liftBall = null;
+    jetRate = .8; jetTarget = 1;
+
+    const left = !isSpecial, start = Math.PI/2;
+    const tgt = left ? END_L - CAP - k * STEP_A : END_R + CAP;
+    b.theta = start; b.side = left ? -1 : 1;
+    followBall = b; camMode = 'follow';
+    const span = Math.abs(tgt - start);
+    await tween(420 + 620 * Math.sqrt(span), t => { railI = 1; setRail(b, start + (tgt - start) * t * t); });
+    const back = (tgt > start ? -1 : 1) * STEP_A * .2;
+    await tween(260, t => setRail(b, tgt + back * Math.sin(Math.PI * t) * (1 - t * .4)));
+    setRail(b, tgt);
+    b.state = 'rail';
+    return b;
+  }
+
+  /* ---------- 結果與紀錄 ---------- */
+  const KEY = 'marksix-sim-history';
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) { history = []; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(history.slice(0, 5000))); } catch (e) {} };
+  const pad = n => String(n).padStart(3, '0');
+  const nextNo = () => (history[0] ? history[0].no : 0) + 1;
+
+  function ballEl(n) {
+    const d = document.createElement('span');
+    d.className = 'ball ' + colorName(n);
+    d.setAttribute('aria-label', n + ' 號');
+    const b = document.createElement('b'); b.textContent = n; d.appendChild(b);
+    return d;
+  }
+  function resetSlots() {
+    slotsEl.replaceChildren();
+    for (let i = 0; i < 7; i++) {
+      if (i === 6) { const p = document.createElement('span'); p.className = 'plus'; p.textContent = '+'; slotsEl.appendChild(p); }
+      const s = document.createElement('span');
+      s.className = 'slot' + (i === 6 ? ' special' : '');
+      s.textContent = i === 6 ? '特' : String(i + 1);
+      slotsEl.appendChild(s);
+    }
+    sortedRow.hidden = true; countEl.textContent = '0';
+  }
+  function fillSlot(i, n) {
+    const s = slotsEl.querySelectorAll('.slot')[i];
+    s.replaceChildren(ballEl(n)); s.classList.add('filled');
+  }
+  function fmtTime(ts) {
+    try { return new Date(ts).toLocaleString('zh-HK', { timeZone:'Asia/Hong_Kong', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }); }
+    catch (e) { return new Date(ts).toLocaleString(); }
+  }
+  function renderHistory() {
+    histEl.replaceChildren();
+    histEmpty.hidden = history.length > 0;
+    clearBtn.hidden = history.length === 0;
+    for (const h of history.slice(0, 30)) {
+      const li = document.createElement('li');
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.innerHTML = `<span class="no">第 ${pad(h.no)} 次</span><time>${fmtTime(h.time)}${h.quick ? '・直接攪珠' : ''}</time>`;
+      const row = document.createElement('div'); row.className = 'balls';
+      [...h.main].sort((a,b) => a - b).forEach(n => row.appendChild(ballEl(n)));
+      const p = document.createElement('span'); p.className = 'plus'; p.textContent = '+'; row.appendChild(p);
+      row.appendChild(ballEl(h.special));
+      li.append(meta, row); histEl.appendChild(li);
+    }
+    drawNoEl.textContent = pad(nextNo());
+    histCount.textContent = history.length > 999 ? '999+' : String(history.length);
+  }
+  // 按住約 1.2 秒清除：填滿是在「決定」，放開即時回彈
+  let holdTimer = null;
+  const holdStart = () => {
+    if (holdTimer) return;
+    clearBtn.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      holdTimer = null; clearBtn.classList.remove('holding');
+      history = []; save(); renderHistory();
+      ballHits = {}; lsSet(HITS_KEY, {}); renderStats();
+      batchPanel.hidden = true; batchList.replaceChildren();
+      histEmpty.textContent = '已清除所有攪珠紀錄。';
+    }, 1200);
+  };
+  const holdEnd = () => { clearTimeout(holdTimer); holdTimer = null; clearBtn.classList.remove('holding'); };
+  clearBtn.addEventListener('pointerdown', e => { if (e.button === 0) { clearBtn.setPointerCapture(e.pointerId); holdStart(); } });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => clearBtn.addEventListener(t, holdEnd));
+  clearBtn.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); holdStart(); } });
+  clearBtn.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') holdEnd(); });
+  clearBtn.addEventListener('blur', holdEnd);
+  clearBtn.addEventListener('contextmenu', e => e.preventDefault());
+
+  async function runDraw() {
+    if (busy) return;
+    busy = true; btn.disabled = true; batchBtn.disabled = true; swapText(btn, '攪珠中…'); statusPill.classList.add('busy'); activateTab('result');
+    const no = nextNo(); drawNoEl.textContent = pad(no);
+    curMeta.textContent = `第 ${pad(no)} 次`;
+    resetSlots();
+    stageResult.hidden = true;
+    reseed();
+    for (const b of balls) b.hits = 0;
+    const waits = [];
+
+    if (has3D) {
+      if (balls.some(b => b.state !== 'tube')) await reload();
+      camMode = 'front';
+      await dropFromTubes();
+      camMode = 'close'; setStatus('氣流攪拌，慢慢加速'); jetRate = .45; jetTarget = 1;
+      await wait(4200);
+    } else {
+      setStatus('攪拌中'); await wait(1500);
+    }
+
+    const pool = Array.from({ length:49 }, (_, i) => i + 1), picks = [];
+
+    for (let k = 0; k < 7; k++) {
+      if (k > 0 && has3D) {
+        camMode = 'front'; followBall = null; setStatus('氣流攪拌中');
+        await wait(2000);
+      }
+      if (!has3D) setStatus(k < 6 ? `攪出第 ${k + 1} 個號碼` : '攪出特別號碼');
+      if (has3D) { const b = await drawBall(k); picks.push(b.n); waits.push(+(b.wait || 0).toFixed(2)); }
+      else { picks.push(pool.splice(secureInt(pool.length), 1)[0]); await wait(900); }
+      fillSlot(k, picks[k]); countEl.textContent = String(k + 1);
+      if (k === 5) { sortedEl.replaceChildren(...[...picks.slice(0,6)].sort((a,b) => a - b).map((n, i) => { const e = ballEl(n); e.style.setProperty('--i', i); return e; })); sortedRow.hidden = false; }
+      await wait(k === 5 ? 1000 : 700);
+    }
+    jetRate = 1.2; jetTarget = 0; camMode = 'front'; followBall = null;
+    const rec = { no, time:Date.now(), main:picks.slice(0,6), special:picks[6], waits, fast:fastEl.checked, sound:soundEl.checked };
+    history.unshift(rec); save(); renderHistory();
+    if (has3D) recordBallHits();
+    if (statSrc === 'demo' && history.length === 1) statSrc = 'mine';
+    renderStats();
+    curMeta.textContent = `第 ${pad(no)} 次・${fmtTime(rec.time)}`;
+    setStatus('攪珠完成');
+    const sortedMain = [...rec.main].sort((a, b) => a - b).map(ballEl);
+    const plus = document.createElement('span'); plus.className = 'plus'; plus.textContent = '+';
+    const fin = [...sortedMain, plus, ballEl(rec.special)]; fin.forEach((el, i) => el.style.setProperty('--i', i));
+    stageResult.replaceChildren(...fin);
+    stageResult.hidden = false;
+    statusPill.classList.remove('busy'); busy = false; btn.disabled = false; batchBtn.disabled = false; swapText(btn, '攪球');
+  }
+  btn.addEventListener('click', () => { initAudio(); runDraw(); });
+
+  /* ---------- 分頁與滑動指示 ---------- */
+  function placeInd(group, instant) {
+    const ind = group.querySelector(':scope > .ind');
+    const on = group.querySelector('[aria-selected="true"],[aria-pressed="true"]');
+    if (!ind || !on || !on.offsetWidth) return;
+    if (instant || !group.dataset.ready) ind.classList.add('instant');
+    ind.style.width = on.offsetWidth + 'px'; ind.style.height = on.offsetHeight + 'px';
+    ind.style.transform = `translate(${on.offsetLeft}px,${on.offsetTop}px)`;
+    if (ind.classList.contains('instant')) { void ind.offsetWidth; ind.classList.remove('instant'); }
+    group.dataset.ready = '1';
+  }
+  function ensureInd(group) {
+    if (!group.querySelector(':scope > .ind')) { const i = document.createElement('span'); i.className = 'ind'; i.setAttribute('aria-hidden', 'true'); group.prepend(i); }
+    if (!group._ro && window.ResizeObserver) { group._ro = new ResizeObserver(() => placeInd(group, true)); group._ro.observe(group); }
+  }
+  const segs = () => document.querySelectorAll('.seg');
+  function placeSegs(instant) { segs().forEach(g => { ensureInd(g); placeInd(g, instant); }); }
+  const tabsEl = $('#tabs'), tabBtns = [...tabsEl.querySelectorAll('[role="tab"]')];
+  const TAB_KEY = 'marksix-sim-tab';
+  function activateTab(name, opts = {}) {
+    for (const t of tabBtns) {
+      const on = t.dataset.tab === name;
+      t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1;
+      $('#' + t.getAttribute('aria-controls')).hidden = !on;
+    }
+    placeInd(tabsEl, opts.instant);
+    if (name === 'stats') placeSegs(true);
+    try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
+    if (opts.focus) tabBtns.find(t => t.dataset.tab === name).focus();
+  }
+  tabsEl.addEventListener('click', e => { const t = e.target.closest('[role="tab"]'); if (t) activateTab(t.dataset.tab); });
+  tabsEl.addEventListener('keydown', e => {
+    const i = tabBtns.findIndex(t => t.getAttribute('aria-selected') === 'true');
+    let j = null;
+    if (e.key === 'ArrowRight') j = (i + 1) % tabBtns.length;
+    else if (e.key === 'ArrowLeft') j = (i - 1 + tabBtns.length) % tabBtns.length;
+    else if (e.key === 'Home') j = 0; else if (e.key === 'End') j = tabBtns.length - 1;
+    if (j == null) return;
+    e.preventDefault(); activateTab(tabBtns[j].dataset.tab, { instant:true, focus:true });   // 鍵盤操作不加動畫
+  });
+  if (window.ResizeObserver) new ResizeObserver(() => placeInd(tabsEl, true)).observe(tabsEl);
+
+  /* ---------- 直接攪珠 N 次（不播放動畫） ---------- */
+  const batchForm = $('#batchForm'), batchN = $('#batchN'), batchBtn = $('#batchBtn'), batchMsg = $('#batchMsg');
+  const batchPanel = $('#batchPanel'), batchList = $('#batchList'), batchMeta = $('#batchMeta');
+  const BATCH_HINT = batchMsg.textContent;
+  batchForm.addEventListener('submit', e => {
+    e.preventDefault();
+    if (busy) return;
+    const n = Number(batchN.value);
+    if (!Number.isInteger(n) || n < 1 || n > 1000) {
+      batchN.setAttribute('aria-invalid', 'true'); $('#batchField').classList.add('invalid'); batchMsg.classList.remove('ok'); batchMsg.classList.add('err');
+      swapText(batchMsg, '請輸入 1 至 1000 之間的整數。'); batchN.focus(); return;
+    }
+    batchN.removeAttribute('aria-invalid'); $('#batchField').classList.remove('invalid'); batchMsg.classList.remove('err');
+    const start = nextNo(), now = Date.now(), recs = [];
+    for (let i = 0; i < n; i++) {
+      const pool = Array.from({ length:49 }, (_, k) => k + 1), p = [];
+      for (let k = 0; k < 7; k++) p.push(pool.splice(secureInt(pool.length), 1)[0]);
+      recs.push({ no:start + i, time:now, main:p.slice(0, 6), special:p[6], quick:true });
+    }
+    for (const r of recs) history.unshift(r);
+    save(); renderHistory();
+    if (statSrc === 'demo') statSrc = 'mine';
+    renderStats();
+    // 顯示結果
+    const frag = document.createDocumentFragment();
+    for (let i = recs.length - 1; i >= 0; i--) {
+      const h = recs[i], li = document.createElement('li');
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.innerHTML = `<span class="no">第 ${pad(h.no)} 次</span>`;
+      const row = document.createElement('div'); row.className = 'balls';
+      [...h.main].sort((a, b) => a - b).forEach(x => row.appendChild(ballEl(x)));
+      const pl = document.createElement('span'); pl.className = 'plus'; pl.textContent = '+'; row.appendChild(pl);
+      row.appendChild(ballEl(h.special));
+      li.append(meta, row); frag.appendChild(li);
+    }
+    batchList.replaceChildren(frag);
+    batchMeta.textContent = `第 ${pad(start)}–${pad(start + n - 1)} 次・共 ${n} 期・${fmtTime(now)}`;
+    batchPanel.hidden = false;
+    batchMsg.classList.add('ok'); swapText(batchMsg, `已加入 ${n} 期到攪珠紀錄及統計`);
+    activateTab('result');
+    batchPanel.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block:'nearest' });
+    clearTimeout(batchForm._t); batchForm._t = setTimeout(() => { batchMsg.classList.remove('ok'); swapText(batchMsg, BATCH_HINT); }, 4000);
+  });
+  batchN.addEventListener('input', () => { if (!batchMsg.classList.contains('err')) return; batchN.removeAttribute('aria-invalid'); $('#batchField').classList.remove('invalid'); batchMsg.classList.remove('err'); swapText(batchMsg, BATCH_HINT); });
+  soundEl.addEventListener('change', () => { if (soundEl.checked) initAudio(); });
+
+  /* ---------- 統計（本機版：資料來自此瀏覽器的攪珠紀錄） ---------- */
+  const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const VISIT_KEY = 'marksix-sim-visits', HITS_KEY = 'marksix-sim-ballhits', PICK_KEY = 'marksix-sim-mypick';
+  const visits = (lsGet(VISIT_KEY, 0) || 0) + 1; lsSet(VISIT_KEY, visits);
+  let ballHits = lsGet(HITS_KEY, {}) || {};
+  let myPick = (lsGet(PICK_KEY, []) || []).filter(n => n >= 1 && n <= 49).slice(0, 6);
+  let statSrc = null, statMode = 'main', demoCache = null;
+  const $$ = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+  const pct = (a, b) => b ? (a / b * 100) : 0;
+  const fmtPct = v => (Math.round(v * 10) / 10).toFixed(1) + '%';
+
+  // 生肖：每個農曆年 1 號為當年生肖，號碼往回順數（以香港時間的農曆新年日期換算）
+  const ZODIAC = '鼠牛虎兔龍蛇馬羊猴雞狗豬';
+  const LNY = [['2020-01-25',0],['2021-02-12',1],['2022-02-01',2],['2023-01-22',3],['2024-02-10',4],['2025-01-29',5],['2026-02-17',6],['2027-02-06',7],['2028-01-26',8],['2029-02-13',9],['2030-02-03',10],['2031-01-23',11],['2032-02-11',0]];
+  function yearZodiac(ts) {
+    const d = new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
+    let z = LNY[0][1]; for (const [date, idx] of LNY) if (d >= date) z = idx; return z;
+  }
+  const zodiacOf = (n, ts) => ((yearZodiac(ts) - (n - 1)) % 12 + 12) % 12;
+  const hkDay = ts => new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
+  const hkHour = ts => new Date(ts + 8 * 3600e3).getUTCHours();
+
+  function prng(seed) { // sfc32
+    let [a, b, c, d] = seed;
+    return () => { a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; let t = (a + b) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); d = (d + 1) | 0; t = (t + d) | 0; c = (c + t) | 0; return (t >>> 0) / 4294967296; };
+  }
+  function makeDemo() {
+    if (demoCache) return demoCache;
+    const rr = prng([0x1234abcd, 0x9e3779b9, 0x7f4a7c15, 0x2545f491]);
+    const draws = [], t0 = Date.UTC(2026, 2, 1, 4);
+    for (let i = 0; i < 500; i++) {
+      const pool = Array.from({ length:49 }, (_, k) => k + 1), p = [];
+      for (let k = 0; k < 7; k++) p.push(pool.splice(Math.floor(rr() * pool.length), 1)[0]);
+      draws.push({ no:i + 1, time:t0 + i * 3.4 * 3600e3 + rr() * 3000e3, main:p.slice(0, 6), special:p[6],
+        waits:p.map(() => 1.6 + rr() * 6.5), fast:rr() < .3, sound:rr() < .7 });
+    }
+    const hits = {}; for (let n = 1; n <= 49; n++) hits[n] = Math.round(9000 + rr() * 3000);
+    return demoCache = { draws, hits };
+  }
+
+  const setOf = (d, mode) => mode === 'main' ? d.main : mode === 'special' ? [d.special] : [...d.main, d.special];
+  function numberStats(draws, mode) {
+    const D = draws.length, cnt = Array(50).fill(0), last = Array(50).fill(-1), maxGap = Array(50).fill(0), streak = Array(50).fill(0), maxStreak = Array(50).fill(0);
+    draws.forEach((d, i) => {
+      const s = new Set(setOf(d, mode));
+      for (let n = 1; n <= 49; n++) {
+        if (s.has(n)) { cnt[n]++; maxGap[n] = Math.max(maxGap[n], i - last[n] - 1); last[n] = i; streak[n]++; maxStreak[n] = Math.max(maxStreak[n], streak[n]); }
+        else streak[n] = 0;
+      }
+    });
+    const curGap = Array(50).fill(0);
+    for (let n = 1; n <= 49; n++) { curGap[n] = last[n] < 0 ? D : D - 1 - last[n]; maxGap[n] = Math.max(maxGap[n], curGap[n]); }
+    return { D, cnt, curGap, maxGap, maxStreak, streak };
+  }
+  const top = (arr, k, dir = -1, filter = () => true) => {
+    const ns = []; for (let n = 1; n <= 49; n++) if (filter(n)) ns.push(n);
+    return ns.sort((a, b) => dir * (arr[a] - arr[b]) || a - b).slice(0, k);
+  };
+
+  // 卡方檢定 p 值（正則化不完全 Gamma 函數）
+  function lnGamma(z) {
+    const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    if (z < .5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z);
+    z -= 1; let x = c[0]; for (let i = 1; i < 9; i++) x += c[i] / (z + i);
+    const t = z + 7.5; return .5 * Math.log(2 * Math.PI) + (z + .5) * Math.log(t) - t + Math.log(x);
+  }
+  function gammaQ(a, x) {
+    if (x <= 0) return 1;
+    const lead = Math.exp(-x + a * Math.log(x) - lnGamma(a));
+    if (x < a + 1) { let ap = a, sum = 1 / a, del = sum; for (let n = 0; n < 300; n++) { ap++; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 1e-12) break; } return 1 - sum * lead; }
+    let b = x + 1 - a, c = 1e300, d = 1 / b, h = d;
+    for (let i = 1; i < 300; i++) { const an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300; c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; const del = d * c; h *= del; if (Math.abs(del - 1) < 1e-12) break; }
+    return lead * h;
+  }
+
+  /* ---- 介面元件 ---- */
+  function smallBall(n) { const b = ballEl(n); return b; }
+  function card(title, sub) { const c = $$('div', 'card'); c.appendChild($$('h3', null, title + (sub ? `<span>${sub}</span>` : ''))); return c; }
+  function rankList(ns, valFn) {
+    const ul = $$('ul', 'rank');
+    for (const n of ns) { const li = $$('li'); li.appendChild(smallBall(n)); li.appendChild($$('span', 'val', valFn(n))); ul.appendChild(li); }
+    return ul;
+  }
+  function barList(rows) { // rows: [{label, value, total, tip}]
+    const max = Math.max(1, ...rows.map(r => r.value));
+    const wrap = $$('div', 'bars');
+    for (const r of rows) {
+      const row = $$('div', 'row'); row.dataset.tip = r.tip || `${r.label}：${r.value} 期（${fmtPct(pct(r.value, r.total))}）`;
+      row.appendChild($$('span', null, r.label));
+      const tr = $$('div', 'track'), f = $$('div', 'fill'); f.style.width = (r.value / max * 100) + '%'; if (r.color) f.style.background = r.color;
+      tr.appendChild(f); row.appendChild(tr);
+      row.appendChild($$('span', 'num', r.pctText || fmtPct(pct(r.value, r.total))));
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  /* ---- 主渲染 ---- */
+  const tilesEl = $('#tiles'), statBody = $('#statBody'), statEmpty = $('#statEmpty'), demoNote = $('#demoNote');
+  const heatEl = $('#heat'), rankCards = $('#rankCards'), distCards = $('#distCards'), miscCards = $('#miscCards');
+  const srcMine = $('#srcMine'), srcDemo = $('#srcDemo');
+
+  function source() {
+    if (statSrc === 'demo') { const d = makeDemo(); return { draws:d.draws, hits:d.hits, demo:true }; }
+    return { draws:[...history].reverse(), hits:ballHits, demo:false };
+  }
+
+  function renderStats() {
+    if (statSrc == null) statSrc = history.length ? 'mine' : 'demo';
+    srcMine.setAttribute('aria-pressed', String(statSrc === 'mine'));
+    srcDemo.setAttribute('aria-pressed', String(statSrc === 'demo'));
+    srcMine.textContent = `我的紀錄（${history.length} 期）`;
+    srcDemo.textContent = '示範數據（500 期）';
+    for (const b of document.querySelectorAll('#modeSeg button')) b.setAttribute('aria-pressed', String(b.dataset.mode === statMode));
+    placeSegs(false);
+    const { draws, hits, demo } = source();
+    demoNote.hidden = !demo;
+    const D = draws.length;
+    statEmpty.hidden = D > 0; statBody.hidden = D === 0;
+    renderTiles(draws, demo);
+    if (!D) return;
+    const modeName = { main:'正選', special:'特別號碼', all:'正選＋特別' }[statMode];
+    const st = numberStats(draws, statMode);
+    renderHeat(st, modeName);
+    renderRanks(draws, st, hits, modeName);
+    renderDist(draws);
+    renderMisc(draws, demo);
+  }
+
+  function renderTiles(draws, demo) {
+    tilesEl.replaceChildren();
+    const D = draws.length;
+    const waits = draws.flatMap(d => d.waits || []).filter(x => x > 0);
+    const avgWait = waits.length ? waits.reduce((a, b) => a + b, 0) / waits.length : null;
+    const today = hkDay(Date.now());
+    const todayN = draws.filter(d => hkDay(d.time) === today).length;
+    const lastD = draws[D - 1];
+    const tiles = [
+      ['攪珠期數', `${D}<small>期</small>`, demo ? '示範數據' : `今日 ${todayN} 期（香港時間）`],
+      ['本機開啟次數', `${visits}<small>次</small>`, '只計此瀏覽器'],
+      ['平均落洞時間', avgWait != null ? `${avgWait.toFixed(1)}<small>秒</small>` : '—', avgWait != null ? `最快 ${Math.min(...waits).toFixed(1)} 秒・最慢 ${Math.max(...waits).toFixed(1)} 秒` : '新一期攪珠後開始記錄'],
+      ['最近一期', lastD ? `第 ${pad(lastD.no)} 次` : '—', lastD ? fmtTime(lastD.time) : '尚未攪珠']
+    ];
+    for (const [k, v, s] of tiles) {
+      const t = $$('div', 'tile'); t.appendChild($$('span', 'k', k));
+      const vv = $$('span', 'v', v); if (k === '最近一期') vv.style.fontSize = '22px';
+      t.appendChild(vv); t.appendChild($$('span', 's', s)); tilesEl.appendChild(t);
+    }
+  }
+
+  function renderHeat(st, modeName) {
+    heatEl.replaceChildren();
+    let mn = Infinity, mx = -Infinity; for (let n = 1; n <= 49; n++) { mn = Math.min(mn, st.cnt[n]); mx = Math.max(mx, st.cnt[n]); }
+    for (let n = 1; n <= 49; n++) {
+      const t = mx > mn ? (st.cnt[n] - mn) / (mx - mn) : .5;
+      const c = $$('div', 'cell');
+      c.style.background = `rgba(255,85,17,${(.08 + .82 * t).toFixed(3)})`;
+      c.innerHTML = `<span class="dot ${colorName(n)}"></span><span class="n">${n}</span><span class="c">${st.cnt[n]}</span>`;
+      const tip = `${n} 號（${modeName}）・出現 ${st.cnt[n]} 次・目前遺漏 ${st.curGap[n]} 期・最長遺漏 ${st.maxGap[n]} 期`;
+      c.dataset.tip = tip; c.setAttribute('aria-label', tip); c.setAttribute('role', 'img');
+      heatEl.appendChild(c);
+    }
+  }
+
+  function renderRanks(draws, st, hits, modeName) {
+    rankCards.replaceChildren();
+    const D = draws.length;
+    const exp = (statMode === 'main' ? 6 : statMode === 'special' ? 1 : 7) * D / 49;
+    let c = card('最多出現（熱號）', modeName); c.appendChild(rankList(top(st.cnt, 5), n => `${st.cnt[n]}<small>次</small>`));
+    c.appendChild($$('p', null, `理論平均每個號碼 <b>${exp.toFixed(1)}</b> 次`)); rankCards.appendChild(c);
+    c = card('最少出現（冷號）', modeName); c.appendChild(rankList(top(st.cnt, 5, 1), n => `${st.cnt[n]}<small>次</small>`)); rankCards.appendChild(c);
+    c = card('最久沒出現', '目前遺漏'); c.appendChild(rankList(top(st.curGap, 5), n => `${st.curGap[n]}<small>期</small>`)); rankCards.appendChild(c);
+    c = card('歷史最長遺漏', modeName); c.appendChild(rankList(top(st.maxGap, 5), n => `${st.maxGap[n]}<small>期</small>`)); rankCards.appendChild(c);
+    c = card('最多連續出現', modeName); c.appendChild(rankList(top(st.maxStreak, 5), n => `${st.maxStreak[n]}<small>期</small>`)); rankCards.appendChild(c);
+    c = card('目前連續出現中', '連續 2 期或以上');
+    const live = top(st.streak, 5, -1, n => st.streak[n] >= 2);
+    if (live.length) c.appendChild(rankList(live, n => `${st.streak[n]}<small>期</small>`)); else c.appendChild($$('p', null, '目前沒有連續 2 期或以上出現的號碼。'));
+    rankCards.appendChild(c);
+
+    // 正選組合
+    const pair = new Map();
+    for (const d of draws) { const m = [...d.main].sort((a, b) => a - b); for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) { const k = m[i] * 100 + m[j]; pair.set(k, (pair.get(k) || 0) + 1); } }
+    const pairs = [...pair.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 5);
+    c = card('最常一起出現的號碼對', '正選');
+    const ul = $$('ul', 'rank');
+    for (const [k, v] of pairs) { const li = $$('li'); li.appendChild(smallBall(Math.floor(k / 100))); li.appendChild(smallBall(k % 100)); li.appendChild($$('span', 'val', `${v}<small>次</small>`)); ul.appendChild(li); }
+    c.appendChild(ul); rankCards.appendChild(c);
+
+    const first = Array(50).fill(0); for (const d of draws) first[d.main[0]]++;
+    c = card('最常第一個攪出', '攪出次序第 1 粒'); c.appendChild(rankList(top(first, 5), n => `${first[n]}<small>次</small>`)); rankCards.appendChild(c);
+
+    const h = Array(50).fill(0); let any = false; for (let n = 1; n <= 49; n++) { h[n] = hits[n] || 0; if (h[n]) any = true; }
+    c = card('最勤力彩球', '攪拌時碰撞次數');
+    if (any) c.appendChild(rankList(top(h, 5), n => `${h[n].toLocaleString('zh-HK')}<small>次</small>`));
+    else c.appendChild($$('p', null, '新一期攪珠後開始記錄每粒彩球的碰撞次數。'));
+    rankCards.appendChild(c);
+  }
+
+  function renderDist(draws) {
+    distCards.replaceChildren();
+    const D = draws.length;
+    const odd = Array(7).fill(0), big = Array(7).fill(0), tail = Array(10).fill(0), rep = Array(7).fill(0), zod = Array(12).fill(0), wave = { red:0, blue:0, green:0 }, combos = new Map();
+    let consec = 0, sumAll = 0, spanAll = 0; const sumBins = Array(13).fill(0);
+    draws.forEach((d, i) => {
+      const m = [...d.main].sort((a, b) => a - b);
+      odd[m.filter(n => n % 2).length]++;
+      big[m.filter(n => n >= 25).length]++;
+      for (const n of m) { tail[n % 10]++; wave[colorName(n)]++; }
+      for (const n of setOf(d, statMode)) zod[zodiacOf(n, d.time)]++;
+      if (m.some((n, k) => k && n - m[k - 1] === 1)) consec++;
+      const s = m.reduce((a, b) => a + b, 0); sumAll += s; spanAll += m[5] - m[0];
+      sumBins[Math.min(12, Math.max(0, Math.floor((s - 20) / 20)))]++;
+      const ck = ['red', 'blue', 'green'].map(w => m.filter(n => colorName(n) === w).length).join('-'); combos.set(ck, (combos.get(ck) || 0) + 1);
+      if (i > 0) { const prev = new Set(draws[i - 1].main); rep[m.filter(n => prev.has(n)).length]++; }
+    });
+
+    let c = card('單雙比', '正選 6 個');
+    c.appendChild(barList([6, 5, 4, 3, 2, 1, 0].map(k => ({ label:`${k}單${6 - k}雙`, value:odd[k], total:D })))); distCards.appendChild(c);
+    c = card('大小比', '25–49 為大');
+    c.appendChild(barList([6, 5, 4, 3, 2, 1, 0].map(k => ({ label:`${k}大${6 - k}小`, value:big[k], total:D })))); distCards.appendChild(c);
+
+    c = card('正選總和分布', '理論範圍 21–279');
+    const mx = Math.max(1, ...sumBins), cols = $$('div', 'cols');
+    sumBins.forEach((v, k) => { const b = $$('div', 'colbar'); b.style.height = (v / mx * 100) + '%'; b.dataset.tip = `總和 ${20 + k * 20}–${39 + k * 20}：${v} 期（${fmtPct(pct(v, D))}）`; cols.appendChild(b); });
+    c.appendChild(cols); c.appendChild($$('div', 'cols-axis', '<span>20</span><span>150</span><span>279</span>'));
+    c.appendChild($$('p', null, `平均總和 <b>${(sumAll / D).toFixed(1)}</b>（理論 150）・平均跨度 <b>${(spanAll / D).toFixed(1)}</b>`));
+    distCards.appendChild(c);
+
+    c = card('波色', '正選號碼');
+    const tw = 6 * D;
+    c.appendChild(barList([
+      { label:'紅', value:wave.red, total:tw, color:'var(--red)', tip:`紅波：${wave.red} 個（理論 34.7%）` },
+      { label:'藍', value:wave.blue, total:tw, color:'var(--blue)', tip:`藍波：${wave.blue} 個（理論 32.7%）` },
+      { label:'綠', value:wave.green, total:tw, color:'var(--green)', tip:`綠波：${wave.green} 個（理論 32.7%）` }
+    ]));
+    const topCombo = [...combos.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (topCombo) { const [r, b, g] = topCombo[0].split('-'); c.appendChild($$('p', null, `最常見組合：紅 ${r}・藍 ${b}・綠 ${g}，共 <b>${topCombo[1]}</b> 期`)); }
+    distCards.appendChild(c);
+
+    c = card('生肖', { main:'正選', special:'特別號碼', all:'正選＋特別' }[statMode] + '・按當期農曆年');
+    const zt = zod.reduce((a, b) => a + b, 0);
+    c.appendChild(barList([...ZODIAC].map((z, k) => ({ label:z, value:zod[k], total:zt, tip:`${z}：${zod[k]} 個` })))); distCards.appendChild(c);
+
+    c = card('尾數分布', '正選');
+    c.appendChild(barList(tail.map((v, k) => ({ label:`尾 ${k}`, value:v, total:tw, tip:`尾數 ${k}：${v} 個` })))); distCards.appendChild(c);
+
+    c = card('連號與重號', '正選');
+    c.appendChild($$('p', null, `有連號（如 12、13）的期數 <b>${consec}</b>（${fmtPct(pct(consec, D))}，理論約 49.5%）`));
+    const rt = Math.max(0, D - 1);
+    c.appendChild(barList([0, 1, 2, 3].map(k => ({ label:k === 3 ? '3 個以上' : `${k} 個`, value:k === 3 ? rep[3] + rep[4] + rep[5] + rep[6] : rep[k], total:rt, tip:`與上期重複 ${k === 3 ? '3 個以上' : k + ' 個'}` }))));
+    c.appendChild($$('p', null, '上圖：與上一期正選重複的號碼數'));
+    distCards.appendChild(c);
+  }
+
+  function renderMisc(draws, demo) {
+    miscCards.replaceChildren();
+    const D = draws.length;
+    // 公平性
+    const st = numberStats(draws, 'main'), E = 6 * D / 49;
+    let chi = 0; for (let n = 1; n <= 49; n++) chi += (st.cnt[n] - E) ** 2 / E;
+    let c = card('公平性檢定', '正選・卡方檢定');
+    if (D < 40) c.appendChild($$('span', 'verdict', `<i></i>樣本不足：至少要 40 期，目前 ${D} 期`));
+    else {
+      const p = gammaQ(24, chi / 2);
+      c.appendChild($$('span', 'verdict ' + (p >= .05 ? 'ok' : 'warn'), `<i></i>${p >= .05 ? '分布均勻，未見明顯偏差' : '有偏差跡象，建議累積更多期數再看'}`));
+      c.appendChild($$('p', null, `χ² = <b>${chi.toFixed(1)}</b>・自由度 48・p = <b>${p < .001 ? '<0.001' : p.toFixed(3)}</b>`));
+    }
+    c.appendChild($$('p', null, '比較 49 個號碼的實際出現次數與理論平均值。p 值大於 0.05 代表差異屬正常隨機波動。'));
+    miscCards.appendChild(c);
+
+    // 自選號碼對獎
+    c = card('自選號碼對獎', '揀 6 個號碼');
+    const picker = $$('div', 'picker');
+    for (let n = 1; n <= 49; n++) {
+      const b = $$('button'); b.type = 'button'; b.textContent = n; b.setAttribute('aria-pressed', String(myPick.includes(n)));
+      b.addEventListener('click', () => {
+        if (myPick.includes(n)) myPick = myPick.filter(x => x !== n); else if (myPick.length < 6) myPick = [...myPick, n].sort((a, b) => a - b);
+        lsSet(PICK_KEY, myPick); renderMisc(source().draws, statSrc === 'demo');
+      });
+      picker.appendChild(b);
+    }
+    c.appendChild(picker);
+    if (myPick.length < 6) c.appendChild($$('p', null, `已揀 <b>${myPick.length}</b> 個，再揀 ${6 - myPick.length} 個就可以對獎。`));
+    else {
+      const tiers = [['頭獎', '6 個正選'], ['二獎', '5 個＋特別'], ['三獎', '5 個正選'], ['四獎', '4 個＋特別'], ['五獎', '4 個正選'], ['六獎', '3 個＋特別'], ['七獎', '3 個正選']];
+      const won = Array(7).fill(0); let lastWin = null;
+      const ps = new Set(myPick);
+      draws.forEach(d => {
+        const m = d.main.filter(n => ps.has(n)).length, sp = ps.has(d.special);
+        const t = m === 6 ? 0 : m === 5 && sp ? 1 : m === 5 ? 2 : m === 4 && sp ? 3 : m === 4 ? 4 : m === 3 && sp ? 5 : m === 3 ? 6 : -1;
+        if (t >= 0) { won[t]++; lastWin = { d, t }; }
+      });
+      const tbl = $$('table', 'prize');
+      tbl.innerHTML = '<thead><tr><th>獎級</th><th>條件</th><th class="r">次數</th></tr></thead>';
+      const tb = $$('tbody'); tiers.forEach(([nm, cond], k) => tb.appendChild($$('tr', null, `<td>${nm}</td><td>${cond}</td><td class="r">${won[k]}</td>`)));
+      tbl.appendChild(tb); c.appendChild(tbl);
+      const total = won.reduce((a, b) => a + b, 0);
+      c.appendChild($$('p', null, `${D} 期之中有 <b>${total}</b> 期中獎（${fmtPct(pct(total, D))}）` + (lastWin ? `；最近一次是第 ${pad(lastWin.d.no)} 次，${tiers[lastWin.t][0]}` : '')));
+    }
+    miscCards.appendChild(c);
+
+    // 使用情況
+    c = card('使用情況', demo ? '示範數據' : '此瀏覽器');
+    const withFlag = draws.filter(d => typeof d.fast === 'boolean');
+    const fastN = withFlag.filter(d => d.fast).length, soundN = withFlag.filter(d => d.sound).length;
+    const hours = Array(24).fill(0); for (const d of draws) hours[hkHour(d.time)]++;
+    const peak = hours.indexOf(Math.max(...hours));
+    const days = new Set(draws.map(d => hkDay(d.time))).size;
+    if (!demo) c.appendChild($$('p', null, `本機開啟 <b>${visits}</b> 次・平均每次開啟攪珠 <b>${(D / visits).toFixed(1)}</b> 期`));
+    c.appendChild($$('p', null, `攪珠日數 <b>${days}</b> 日・平均每日 <b>${(D / Math.max(1, days)).toFixed(1)}</b> 期`));
+    c.appendChild($$('p', null, `最常攪珠時段 <b>${String(peak).padStart(2, '0')}:00–${String(peak).padStart(2, '0')}:59</b>（香港時間）`));
+    if (withFlag.length) c.appendChild($$('p', null, `快速模式 <b>${fmtPct(pct(fastN, withFlag.length))}</b>・開啟音效 <b>${fmtPct(pct(soundN, withFlag.length))}</b>`));
+    miscCards.appendChild(c);
+  }
+
+  // 互動：資料來源、統計範圍、提示框
+  srcMine.addEventListener('click', () => { statSrc = 'mine'; renderStats(); });
+  srcDemo.addEventListener('click', () => { statSrc = 'demo'; renderStats(); });
+  $('#modeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; statMode = b.dataset.mode; renderStats(); });
+  const tip = $$('div', 'tip'); tip.setAttribute('aria-hidden', 'true'); document.body.appendChild(tip);
+  const statsEl = $('#stats');
+  statsEl.addEventListener('pointermove', e => {
+    const t = e.target.closest('[data-tip]');
+    if (!t) { tip.classList.remove('show'); return; }
+    tip.textContent = t.dataset.tip; tip.classList.add('show');
+    const x = Math.max(80, Math.min(window.innerWidth - 80, e.clientX));
+    tip.style.left = x + 'px'; tip.style.top = e.clientY + 'px';
+  });
+  statsEl.addEventListener('pointerleave', () => { tip.classList.remove('show'); });
+
+  function recordBallHits() {
+    for (const b of balls) { if (b.hits) ballHits[b.n] = (ballHits[b.n] || 0) + b.hits; b.hits = 0; }
+    lsSet(HITS_KEY, ballHits);
+  }
+
+  /* ---------- 啟動 ---------- */
+  if (!has3D) {
+    window.THREE = window.THREE || { Vector3: class { constructor(x=0,y=0,z=0){this.x=x;this.y=y;this.z=z;} set(x,y,z){this.x=x;this.y=y;this.z=z;return this;} } };
+  }
+  try {
+    placeBalls();
+    if (has3D) {
+      build();
+      makeFlashes();
+      setTubes(1); setGates(1);
+      fit();
+      cam.dist = frontDist;
+      new ResizeObserver(fit).observe(stage);
+    }
+  } catch (e) {
+    has3D = false; $('#nogl').hidden = false; canvas.hidden = true;
+  }
+  resetSlots(); renderHistory(); renderStats();
+  { let t = 'result'; try { t = localStorage.getItem(TAB_KEY) || 'result'; } catch (e) {} activateTab(['result', 'stats', 'history'].includes(t) ? t : 'result', { instant:true }); }
+  setStatus('彩球已排成 5 行，待命');
+  requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
+})();
+</script>
+
+</body>
+</html>
