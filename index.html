@@ -165,6 +165,13 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
   .picker button:hover:not([aria-pressed="true"]){background:rgba(255,255,255,.06)}
 }
 
+
+/* ---------- YouTube 音樂（僅 GitHub Pages 版）：播放器保持可見，符合 YouTube 嵌入規範 ---------- */
+.yt{display:grid;gap:10px;background:var(--panel);border-radius:18px;padding:12px;box-shadow:var(--shadow)}
+.yt-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:0 4px}
+.yt-head h2{margin:0;font-size:14px;font-weight:700;letter-spacing:.18em;color:var(--muted)}
+.yt-frame{width:100%;max-width:480px;aspect-ratio:16/9;min-height:200px;border:0;border-radius:12px;background:#000;display:block}
+
 /* ---------- 統計 ---------- */
 .stats-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
 .seg{position:relative;display:inline-flex;flex-wrap:wrap;background:var(--raise);box-shadow:var(--ring);border-radius:12px;padding:3px;gap:2px}
@@ -279,9 +286,19 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
     <div class="dock-sub">
       <label class="switch"><input type="checkbox" id="fast"><span></span>快速攪珠</label>
       <label class="switch"><input type="checkbox" id="sound" checked><span></span>撞擊音效</label>
+      <label class="switch"><input type="checkbox" id="music"><span></span>背景音樂</label>
       <span class="hint">拖曳畫面轉動視角・雙擊回正</span>
       <p class="hint dock-msg" id="batchMsg" aria-live="polite">直接攪珠不播放動畫，即時產生 1–1000 期</p>
     </div>
+  </section>
+
+  <section class="yt" aria-labelledby="ytTitle">
+    <div class="yt-head">
+      <h2 id="ytTitle">YouTube 音樂</h2>
+      <button type="button" class="btn-secondary" id="ytLoad">載入播放器</button>
+    </div>
+    <p class="hint" id="ytHint" style="margin:0 4px">按「載入播放器」後才會連線到 YouTube。影片由 YouTube 播放，版權歸原權利人；建議先關閉上方「背景音樂」，避免兩段音樂重疊。</p>
+    <div id="ytSlot"></div>
   </section>
 
   <div class="tabs" role="tablist" aria-label="內容" id="tabs">
@@ -824,6 +841,7 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
       colGroup.scale.y = Math.max(.001, colH); colGroup.visible = colH > .01;
       colTop.position.y = FLOOR + colH; colTop.visible = colH > .01;
       updateFlashes(dt);
+      applyMix(false);
 
       // 光柱：推珠時照亮彩球下方的管身
       if (liftBall) { glowH = Math.max(.001, colH); glowI += (1 - glowI) * Math.min(1, dt * 10); }
@@ -1091,6 +1109,7 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
     renderStats();
     curMeta.textContent = `第 ${pad(no)} 次・${fmtTime(rec.time)}`;
     setStatus('攪珠完成');
+    fanfare();
     const sortedMain = [...rec.main].sort((a, b) => a - b).map(ballEl);
     const plus = document.createElement('span'); plus.className = 'plus'; plus.textContent = '+';
     const fin = [...sortedMain, plus, ballEl(rec.special)]; fin.forEach((el, i) => el.style.setProperty('--i', i));
@@ -1099,6 +1118,7 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
     statusPill.classList.remove('busy'); busy = false; btn.disabled = false; batchBtn.disabled = false; swapText(btn, '攪球');
   }
   btn.addEventListener('click', () => { initAudio(); runDraw(); });
+  document.addEventListener('pointerdown', () => { if (musicEl.checked && !mus) startMusic(); }, { capture:true });
 
   /* ---------- 分頁與滑動指示 ---------- */
   function placeInd(group, instant) {
@@ -1522,6 +1542,129 @@ footer{color:var(--muted);font-size:12px;line-height:1.6;max-width:68ch}
   function recordBallHits() {
     for (const b of balls) { if (b.hits) ballHits[b.n] = (ballHits[b.n] || 0) + b.hits; b.hits = 0; }
     lsSet(HITS_KEY, ballHits);
+  }
+
+
+  /* ---------- 背景音樂：原創 8 小節 MIDI 風格循環（WebAudio 即時合成） ---------- */
+  // 和弦進行 C–Am–F–G–C–Am–Dm–G；旋律為本頁原創
+  const BPM = 116, STEP = 60 / BPM / 4;                         // 16 分音符
+  const CHORDS = [[48, 52, 55], [45, 48, 52], [41, 45, 48], [43, 47, 50], [48, 52, 55], [45, 48, 52], [38, 41, 45], [43, 47, 50]];
+  const LEAD = [
+    [[0,76,2],[2,79,2],[4,84,4],[8,83,2],[10,79,2],[12,76,4]],
+    [[0,81,2],[2,84,2],[4,88,3],[7,86,1],[8,84,4],[12,81,4]],
+    [[0,77,2],[2,81,2],[4,84,2],[6,86,2],[8,84,2],[10,81,2],[12,77,4]],
+    [[0,79,3],[3,81,1],[4,83,2],[6,86,2],[8,79,8]],
+    [[0,84,2],[2,88,2],[4,91,2],[6,88,2],[8,86,2],[10,84,2],[12,79,4]],
+    [[0,81,2],[2,83,2],[4,84,4],[8,88,2],[10,86,2],[12,84,4]],
+    [[0,86,2],[2,89,2],[4,93,2],[6,89,2],[8,88,2],[10,86,2],[12,81,4]],
+    [[0,83,2],[2,86,2],[4,91,4],[8,89,2],[10,86,2],[12,83,4]]
+  ];
+  const MUSIC_KEY = 'marksix-sim-music';
+  const musicEl = $('#music');
+  try { musicEl.checked = localStorage.getItem(MUSIC_KEY) === '1'; } catch (e) {}
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+  let mus = null;   // { master, lead, arp, bass, drum, step, next, timer, mix }
+
+  function musicBus() {
+    const g = n => { const x = actx.createGain(); x.gain.value = n; return x; };
+    const master = g(0); master.connect(actx.destination);
+    const comp = actx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4; comp.connect(master);
+    const bus = { master, lead:g(0), arp:g(0), bass:g(0), drum:g(0) };
+    for (const k of ['lead', 'arp', 'bass', 'drum']) bus[k].connect(comp);
+    return bus;
+  }
+  function tone(dest, type, m, t, dur, vol) {
+    const o = actx.createOscillator(), e = actx.createGain();
+    o.type = type; o.frequency.value = hz(m);
+    e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(vol, t + .005);
+    e.gain.setTargetAtTime(vol * .6, t + .02, .06); e.gain.setTargetAtTime(0, t + dur * .9, .03);
+    o.connect(e); e.connect(dest); o.start(t); o.stop(t + dur + .2);
+  }
+  function drum(kind, t) {
+    if (kind === 'kick') {
+      const o = actx.createOscillator(), e = actx.createGain();
+      o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + .12);
+      e.gain.setValueAtTime(.9, t); e.gain.exponentialRampToValueAtTime(.001, t + .18);
+      o.connect(e); e.connect(mus.drum); o.start(t); o.stop(t + .2);
+      return;
+    }
+    const s = actx.createBufferSource(); s.buffer = noiseBuf;
+    const f = actx.createBiquadFilter(), e = actx.createGain();
+    if (kind === 'snare') { f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = .8; e.gain.value = .5; s.playbackRate.value = .55; }
+    else { f.type = 'highpass'; f.frequency.value = 7000; e.gain.value = .22; }
+    s.connect(f); f.connect(e); e.connect(mus.drum); s.start(t);
+  }
+  function scheduleStep(i, t) {
+    const bar = Math.floor(i / 16) % 8, st = i % 16, ch = CHORDS[bar];
+    for (const [s0, m, len] of LEAD[bar]) if (s0 === st) tone(mus.lead, 'square', m, t, len * STEP, .22);
+    if (st % 2 === 0) tone(mus.bass, 'triangle', (st % 8 === 4 ? ch[0] + 7 : ch[0]) - 12, t, STEP * 1.8, .7);
+    tone(mus.arp, 'triangle', ch[st % 3] + 12 + (st % 6 >= 3 ? 12 : 0), t, STEP * .9, .28);
+    if (st === 0 || st === 8 || st === 10) drum('kick', t);
+    if (st === 4 || st === 12) drum('snare', t);
+    if (st % 2 === 0) drum('hat', t);
+  }
+  function tick() {
+    if (!mus) return;
+    while (mus.next < actx.currentTime + .12) { scheduleStep(mus.step++, mus.next); mus.next += STEP; }
+    mus.timer = setTimeout(tick, 25);
+  }
+  function startMusic() {
+    initAudio(); if (!actx || mus) return;
+    mus = musicBus(); mus.step = 0; mus.next = actx.currentTime + .08; mus.mix = '';
+    mus.master.gain.setTargetAtTime(.16, actx.currentTime, .3);
+    applyMix(true); tick();
+  }
+  function stopMusic() {
+    if (!mus) return;
+    const m = mus; mus = null; clearTimeout(m.timer);
+    m.master.gain.setTargetAtTime(0, actx.currentTime, .15);
+    setTimeout(() => { try { m.master.disconnect(); } catch (e) {} }, 800);
+  }
+  // 依攪珠階段調整各聲部：待命柔和、攪拌全開、減速等候只留琶音與低音
+  const MIX = { idle:[.8, .7, .7, 0], stir:[1, .8, 1, 1], wait:[0, 1, .6, .25] };
+  function applyMix(now) {
+    if (!mus) return;
+    const name = !busy ? 'idle' : holeOpen() ? 'wait' : 'stir';
+    if (name === mus.mix && !now) return;
+    mus.mix = name;
+    const [l, a, b, d] = MIX[name], t = actx.currentTime, tc = name === 'wait' ? .6 : .25;
+    mus.lead.gain.setTargetAtTime(l, t, tc); mus.arp.gain.setTargetAtTime(a, t, tc);
+    mus.bass.gain.setTargetAtTime(b, t, tc); mus.drum.gain.setTargetAtTime(d, t, tc);
+  }
+  // 完成時的原創短號角（C 大調上行琶音＋和弦）
+  function fanfare() {
+    if (!mus) return;
+    const t = actx.currentTime + .05, dest = mus.lead;
+    [[72, 0], [76, .12], [79, .24], [84, .36]].forEach(([m, d]) => tone(dest, 'square', m, t + d, .14, .3));
+    [72, 76, 79, 84].forEach(m => tone(dest, 'square', m, t + .5, .9, .16));
+    tone(mus.bass, 'triangle', 36, t + .5, .9, .8);
+  }
+  musicEl.addEventListener('change', () => {
+    try { localStorage.setItem(MUSIC_KEY, musicEl.checked ? '1' : '0'); } catch (e) {}
+    musicEl.checked ? startMusic() : stopMusic();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!actx || !mus) return;
+    if (document.hidden) actx.suspend().catch(() => {}); else actx.resume().catch(() => {});
+  });
+
+
+  /* ---------- YouTube 播放器：按需載入，官方嵌入，播放器保持可見 ---------- */
+  {
+    const ytLoad = document.getElementById('ytLoad'), ytSlot = document.getElementById('ytSlot');
+    ytLoad.addEventListener('click', () => {
+      if (ytSlot.firstChild) return;
+      const f = document.createElement('iframe');
+      f.className = 'yt-frame';
+      f.title = 'YouTube 影片播放器';
+      f.src = 'https://www.youtube-nocookie.com/embed/APJHp1ZmIj8?rel=0&playsinline=1&loop=1&playlist=APJHp1ZmIj8';
+      f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      f.referrerPolicy = 'strict-origin-when-cross-origin';
+      f.allowFullscreen = true;
+      ytSlot.appendChild(f);
+      ytLoad.hidden = true;
+      if (musicEl.checked) { musicEl.checked = false; musicEl.dispatchEvent(new Event('change')); }
+    });
   }
 
   /* ---------- 啟動 ---------- */
